@@ -4,9 +4,9 @@ import React from 'react';
 // ==========================================
 // CONFIGURATION - INSERT YOUR KEYS HERE
 // ==========================================
-export const CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
+export const CLIENT_ID = '858470161036-92e3qomguk6rp8e6pjdkq2el0l4st7a4.apps.googleusercontent.com';
 export const API_KEY = process.env.API_KEY;
-export const SPREADSHEET_ID = 'YOUR_GOOGLE_SHEET_ID';
+export const SPREADSHEET_ID = '1LarJLHxEZkITr2iUgQ_vMqW5JHqnJrQ7-HcyNFMwlEU';
 // Added drive.file scope to allow uploading recipe photos
 export const SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email';
 
