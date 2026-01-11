@@ -1,0 +1,7 @@
+{
+  "name": "Family Harmony Dashboard",
+  "description": "A comprehensive family management hub featuring meal planning, shopping lists, shared calendars, and AI-powered meal suggestions.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
