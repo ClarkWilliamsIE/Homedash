@@ -5,6 +5,9 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
+      // ADD THIS LINE: This tells the app it's living in a subfolder on GitHub
+      base: '/Homedash/', 
+      
       server: {
         port: 3000,
         host: '0.0.0.0',
