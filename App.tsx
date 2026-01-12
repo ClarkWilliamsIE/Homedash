@@ -16,7 +16,6 @@ const INITIAL_PLAN: WeeklyPlan = {
   Sunday: null, Monday: null, Tuesday: null, Wednesday: null, Thursday: null, Friday: null, Saturday: null
 };
 
-// Define the manual item type here so we can pass it down
 export interface ManualItem {
   id: string;
   name: string;
@@ -39,11 +38,14 @@ const App: React.FC = () => {
   const [notes, setNotes] = useState<FamilyNote[]>([{ id: '1', text: 'Welcome to your dashboard!', color: 'bg-yellow-100' }]);
   const [manualItems, setManualItems] = useState<ManualItem[]>([]);
   
+  // New State for Shopping List features
+  const [hiddenIngredients, setHiddenIngredients] = useState<string[]>([]);
+  const [checkedIngredients, setCheckedIngredients] = useState<string[]>([]); // For recipe items
+
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Use a ref to prevent saving when we are just loading data
   const isInitialLoad = useRef(true);
   const saveTimeout = useRef<any>(null);
 
@@ -89,12 +91,12 @@ const App: React.FC = () => {
     } catch (err) { console.error(err); }
   };
 
-  // 2. DATA FETCHING (Recipes, Calendar, AND SyncData)
+  // 2. DATA FETCHING
   const fetchData = useCallback(async () => {
     if (isPreview || !auth.token || CLIENT_ID.includes('YOUR_GOOGLE')) return;
     setIsLoading(true);
     try {
-      // A. Load Recipes
+      // Load Recipes
       const sheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Recipes!A2:F`, { headers: { Authorization: `Bearer ${auth.token}` } });
       const sheetData = await sheetRes.json();
       if (sheetData.values) {
@@ -108,31 +110,30 @@ const App: React.FC = () => {
         })));
       }
 
-      // B. Load Calendar
+      // Load Calendar
       const now = new Date();
       now.setHours(0,0,0,0);
       const calendarRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${now.toISOString()}&maxResults=50&orderBy=startTime&singleEvents=true`, { headers: { Authorization: `Bearer ${auth.token}` } });
       const calendarData = await calendarRes.json();
       setCalendarEvents(calendarData.items || []);
 
-      // C. Load Synced App State (Plan, Notes, Shopping List)
+      // Load Synced App State
       const syncRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/SyncData!A1?valueRenderOption=UNFORMATTED_VALUE`, { 
         headers: { Authorization: `Bearer ${auth.token}` } 
       });
       const syncData = await syncRes.json();
       
       if (syncData.values && syncData.values[0] && syncData.values[0][0]) {
-        // We found data in the sheet! Parse it.
         try {
           const appState = JSON.parse(syncData.values[0][0]);
           if (appState.weeklyPlan) setWeeklyPlan(appState.weeklyPlan);
           if (appState.notes) setNotes(appState.notes);
           if (appState.manualItems) setManualItems(appState.manualItems);
-        } catch (e) {
-          console.error("Failed to parse SyncData", e);
-        }
+          if (appState.hiddenIngredients) setHiddenIngredients(appState.hiddenIngredients);
+          if (appState.checkedIngredients) setCheckedIngredients(appState.checkedIngredients);
+        } catch (e) { console.error("Failed to parse SyncData", e); }
       } else {
-        // No data in sheet yet? Try to fallback to localStorage for the first migration
+        // Fallback for first load
         const savedPlan = localStorage.getItem('family_weekly_plan');
         if (savedPlan) setWeeklyPlan(JSON.parse(savedPlan));
         const savedNotes = localStorage.getItem('family_notes');
@@ -143,7 +144,6 @@ const App: React.FC = () => {
 
     } catch (err) { console.error(err); } finally { 
       setIsLoading(false); 
-      // Allow saving after initial load is done
       setTimeout(() => { isInitialLoad.current = false; }, 1000);
     }
   }, [auth.token, isPreview]);
@@ -152,36 +152,29 @@ const App: React.FC = () => {
     if (auth.isAuthenticated && !isPreview) fetchData();
   }, [auth.isAuthenticated, fetchData, isPreview]);
 
-  // 3. AUTO-SAVE TO SHEET (Debounced)
+  // 3. AUTO-SAVE STATE (Debounced)
   useEffect(() => {
     if (isPreview || !auth.token || isInitialLoad.current) return;
-
-    // Clear previous timeout
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
 
-    // Set new timeout to save after 2 seconds of inactivity
     saveTimeout.current = setTimeout(async () => {
       setIsSyncing(true);
       try {
-        const payload = JSON.stringify({ weeklyPlan, notes, manualItems });
+        const payload = JSON.stringify({ weeklyPlan, notes, manualItems, hiddenIngredients, checkedIngredients });
         await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/SyncData!A1?valueInputOption=USER_ENTERED`, {
           method: 'PUT',
           headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ values: [[payload]] })
         });
-        // Also update local storage as a backup
+        // Local backups
         localStorage.setItem('family_weekly_plan', JSON.stringify(weeklyPlan));
         localStorage.setItem('family_notes', JSON.stringify(notes));
         localStorage.setItem('family_manual_shopping', JSON.stringify(manualItems));
-      } catch (err) {
-        console.error("Failed to sync state", err);
-      } finally {
-        setIsSyncing(false);
-      }
-    }, 2000); // 2 second delay
+      } catch (err) { console.error("Failed to sync state", err); } finally { setIsSyncing(false); }
+    }, 2000);
 
     return () => clearTimeout(saveTimeout.current);
-  }, [weeklyPlan, notes, manualItems, auth.token, isPreview]);
+  }, [weeklyPlan, notes, manualItems, hiddenIngredients, checkedIngredients, auth.token, isPreview]);
 
 
   // 4. HELPER FUNCTIONS
@@ -198,11 +191,8 @@ const App: React.FC = () => {
         body: formData
       });
       const data = await res.json();
-      return `https://lh3.googleusercontent.com/u/0/d/${data.id}`; // Simple drive proxy URL format
-    } catch (err) {
-      console.error("Drive upload failed", err);
-      return null;
-    }
+      return `https://lh3.googleusercontent.com/u/0/d/${data.id}`;
+    } catch (err) { console.error("Drive upload failed", err); return null; }
   };
 
   const addRecipe = async (recipe: Omit<Recipe, 'id'>, imageFile?: File) => {
@@ -335,9 +325,12 @@ const App: React.FC = () => {
           <ShoppingList 
             weeklyPlan={weeklyPlan} 
             authToken={isPreview ? null : auth.token}
-            // Pass the synced items down to the list
             manualItems={manualItems}
             onUpdateItems={setManualItems}
+            hiddenIngredients={hiddenIngredients}
+            onUpdateHidden={setHiddenIngredients}
+            checkedIngredients={checkedIngredients}
+            onUpdateChecked={setCheckedIngredients}
           />
         )}
         {currentView === View.Calendar && (
