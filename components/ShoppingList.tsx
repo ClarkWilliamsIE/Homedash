@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { WeeklyPlan, Recipe } from '../types';
 import { SPREADSHEET_ID } from '../constants';
 import { ManualItem } from '../App';
@@ -6,17 +6,29 @@ import { ManualItem } from '../App';
 interface ShoppingListProps {
   weeklyPlan: WeeklyPlan;
   authToken: string | null;
-  // NEW PROPS for Syncing
   manualItems: ManualItem[];
   onUpdateItems: (items: ManualItem[]) => void;
+  hiddenIngredients: string[];
+  onUpdateHidden: (items: string[]) => void;
+  checkedIngredients: string[];
+  onUpdateChecked: (items: string[]) => void;
 }
 
-const ShoppingList: React.FC<ShoppingListProps> = ({ weeklyPlan, authToken, manualItems, onUpdateItems }) => {
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
+const ShoppingList: React.FC<ShoppingListProps> = ({ 
+  weeklyPlan, 
+  authToken, 
+  manualItems, 
+  onUpdateItems,
+  hiddenIngredients,
+  onUpdateHidden,
+  checkedIngredients,
+  onUpdateChecked
+}) => {
   const [manualItem, setManualItem] = useState('');
-
-  // NOTE: LocalStorage effect removed because App.tsx handles the sync now!
+  const [sheetSyncStatus, setSheetSyncStatus] = useState<'idle' | 'syncing' | 'error'>('idle');
+  
+  // Use a ref to debounce sheet updates
+  const syncTimeout = useRef<any>(null);
 
   const selectedRecipes = useMemo(() => {
     return Object.values(weeklyPlan).filter(r => r !== null) as Recipe[];
@@ -27,15 +39,61 @@ const ShoppingList: React.FC<ShoppingListProps> = ({ weeklyPlan, authToken, manu
     selectedRecipes.forEach(recipe => {
       recipe.ingredients.forEach(ing => {
         const clean = ing.toLowerCase().trim();
-        list[clean] = (list[clean] || 0) + 1;
+        // Skip hidden items
+        if (!hiddenIngredients.includes(clean)) {
+          list[clean] = (list[clean] || 0) + 1;
+        }
       });
     });
     return Object.entries(list).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [selectedRecipes]);
+  }, [selectedRecipes, hiddenIngredients]);
+
+  // -- SHEET SYNC LOGIC (The "Crazy" Auto-Updater) --
+  useEffect(() => {
+    if (!authToken) return;
+
+    if (syncTimeout.current) clearTimeout(syncTimeout.current);
+
+    setSheetSyncStatus('syncing');
+    
+    syncTimeout.current = setTimeout(async () => {
+      try {
+        // 1. Prepare data
+        const values = [
+          ['Date', new Date().toLocaleDateString()],
+          ['Category', 'Item'],
+          ...aggregatedIngredients.map(([item, count]) => ['Recipe', `${item} ${count > 1 ? `(x${count})` : ''}`]),
+          ...manualItems.map(item => ['Manual', item.name])
+        ];
+
+        // 2. Clear the sheet first (so we don't just append forever)
+        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/ShoppingList!A:C:clear`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${authToken}` }
+        });
+
+        // 3. Write the fresh list
+        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/ShoppingList!A1?valueInputOption=USER_ENTERED`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ values })
+        });
+        
+        setSheetSyncStatus('idle');
+      } catch (err) {
+        console.error("Sheet sync failed", err);
+        setSheetSyncStatus('error');
+      }
+    }, 3000); // 3-second debounce to avoid hitting quotas
+
+    return () => clearTimeout(syncTimeout.current);
+  }, [aggregatedIngredients, manualItems, authToken]);
+
+
+  // -- INTERACTION HANDLERS --
 
   const addManualItem = () => {
     if (!manualItem.trim()) return;
-    // Update parent state directly
     onUpdateItems([...manualItems, { id: Date.now().toString(), name: manualItem.trim(), checked: false }]);
     setManualItem('');
   };
@@ -44,48 +102,32 @@ const ShoppingList: React.FC<ShoppingListProps> = ({ weeklyPlan, authToken, manu
     onUpdateItems(manualItems.map(i => i.id === id ? { ...i, checked: !i.checked } : i));
   };
 
-  const removeManualItem = (id: string) => {
-    onUpdateItems(manualItems.filter(i => i.id !== id));
-  };
-
-  // This saves the "Receipt" to the main list (historical record)
-  // The state itself is already saved by App.tsx to SyncData
-  const saveToSheet = async () => {
-    if (!authToken) {
-      alert("Please sign in to save your list to Google Sheets.");
-      return;
-    }
-    setIsSaving(true);
-    try {
-      const values = [
-        ['Date', new Date().toLocaleDateString()],
-        ['Category', 'Item'],
-        ...aggregatedIngredients.map(([item]) => ['Recipe Ingredient', item]),
-        ...manualItems.map(item => ['Manual Add', item.name])
-      ];
-
-      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/ShoppingList!A1:append?valueInputOption=USER_ENTERED`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ values })
-      });
-
-      if (res.ok) {
-        setSaveStatus('success');
-        setTimeout(() => setSaveStatus('idle'), 3000);
-      } else {
-         const errorData = await res.json();
-         console.error("FULL API ERROR:", errorData);
-         alert(`Save failed: ${errorData.error?.message || "Unknown error"}`);
-         setSaveStatus('error');
-      }
-    } catch (err) { 
-      console.error(err); 
-      setSaveStatus('error'); 
-    } finally { 
-      setIsSaving(false); 
+  const toggleRecipeItem = (name: string) => {
+    if (checkedIngredients.includes(name)) {
+      onUpdateChecked(checkedIngredients.filter(i => i !== name));
+    } else {
+      onUpdateChecked([...checkedIngredients, name]);
     }
   };
+
+  const clearSelected = () => {
+    // 1. Remove checked manual items completely
+    onUpdateItems(manualItems.filter(i => !i.checked));
+
+    // 2. Hide checked recipe items (so they disappear)
+    onUpdateHidden([...hiddenIngredients, ...checkedIngredients]);
+    
+    // 3. Reset the checked list
+    onUpdateChecked([]);
+  };
+
+  const restoreHidden = () => {
+    if (confirm("Restore all cleared recipe items?")) {
+      onUpdateHidden([]);
+    }
+  };
+
+  const checkedCount = manualItems.filter(i => i.checked).length + checkedIngredients.length;
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-20">
@@ -93,11 +135,31 @@ const ShoppingList: React.FC<ShoppingListProps> = ({ weeklyPlan, authToken, manu
         <div className="p-10 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
           <div>
             <h3 className="text-2xl font-bold text-slate-800">Shopping List</h3>
-            <p className="text-slate-500 font-medium">{selectedRecipes.length} recipes + {manualItems.length} custom items</p>
+            <p className="text-slate-500 font-medium">
+              {sheetSyncStatus === 'syncing' ? (
+                <span className="text-indigo-600 flex items-center gap-2">
+                  <span className="w-2 h-2 bg-indigo-600 rounded-full animate-pulse"></span>
+                  Syncing to Sheet...
+                </span>
+              ) : sheetSyncStatus === 'error' ? (
+                <span className="text-red-500">Sync Error (Check Console)</span>
+              ) : (
+                <span className="text-green-600 flex items-center gap-2">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"/></svg>
+                  Sheet Updated
+                </span>
+              )}
+            </p>
           </div>
-          <button onClick={saveToSheet} disabled={isSaving} className={`px-6 py-3 rounded-xl font-bold transition-all ${saveStatus === 'success' ? 'bg-green-500 text-white' : saveStatus === 'error' ? 'bg-red-500 text-white' : 'bg-indigo-600 text-white shadow-lg shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-50'}`}>
-            {isSaving ? 'Syncing...' : saveStatus === 'success' ? 'Synced!' : 'Export to Sheets'}
-          </button>
+          {checkedCount > 0 && (
+            <button 
+              onClick={clearSelected} 
+              className="px-6 py-3 bg-red-50 text-red-600 border border-red-100 rounded-xl font-bold hover:bg-red-100 transition-all flex items-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              Clear Selected ({checkedCount})
+            </button>
+          )}
         </div>
 
         <div className="p-8 space-y-8">
@@ -107,29 +169,42 @@ const ShoppingList: React.FC<ShoppingListProps> = ({ weeklyPlan, authToken, manu
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+            {/* Manual Items */}
             <section className="space-y-4">
                <h4 className="text-xs font-black uppercase text-slate-400 tracking-widest">Extra Items</h4>
                <div className="space-y-2">
                  {manualItems.length === 0 ? <p className="text-sm text-slate-300 italic">No custom items added.</p> : manualItems.map(item => (
-                   <div key={item.id} className="flex items-center gap-3 group">
-                     <input type="checkbox" checked={item.checked} onChange={() => toggleManualItem(item.id)} className="w-5 h-5 rounded border-slate-300 text-indigo-600" />
-                     <span className={`flex-1 text-sm ${item.checked ? 'line-through text-slate-300' : 'text-slate-700'}`}>{item.name}</span>
-                     <button onClick={() => removeManualItem(item.id)} className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all">✕</button>
+                   <div key={item.id} className="flex items-center gap-3 group cursor-pointer" onClick={() => toggleManualItem(item.id)}>
+                     <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${item.checked ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 bg-white'}`}>
+                        {item.checked && <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>}
+                     </div>
+                     <span className={`flex-1 text-sm transition-all ${item.checked ? 'line-through text-slate-300' : 'text-slate-700'}`}>{item.name}</span>
                    </div>
                  ))}
                </div>
             </section>
 
+            {/* Aggregated Recipe Items */}
             <section className="space-y-4">
-               <h4 className="text-xs font-black uppercase text-slate-400 tracking-widest">From Recipes</h4>
+               <div className="flex justify-between items-center">
+                 <h4 className="text-xs font-black uppercase text-slate-400 tracking-widest">From Recipes</h4>
+                 {hiddenIngredients.length > 0 && (
+                   <button onClick={restoreHidden} className="text-[10px] font-bold text-indigo-400 hover:text-indigo-600">Restore Cleared</button>
+                 )}
+               </div>
                <div className="space-y-2">
-                 {aggregatedIngredients.map(([item, count]) => (
-                   <div key={item} className="flex items-center gap-3">
-                     <div className="w-5 h-5 border border-slate-200 rounded" />
-                     <span className="flex-1 text-sm text-slate-700 capitalize">{item}</span>
-                     {count > 1 && <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 rounded-full">x{count}</span>}
-                   </div>
-                 ))}
+                 {aggregatedIngredients.length === 0 ? <p className="text-sm text-slate-300 italic">No ingredients needed.</p> : aggregatedIngredients.map(([item, count]) => {
+                   const isChecked = checkedIngredients.includes(item);
+                   return (
+                     <div key={item} className="flex items-center gap-3 cursor-pointer group" onClick={() => toggleRecipeItem(item)}>
+                       <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${isChecked ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 bg-white'}`}>
+                          {isChecked && <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>}
+                       </div>
+                       <span className={`flex-1 text-sm capitalize transition-all ${isChecked ? 'line-through text-slate-300' : 'text-slate-700'}`}>{item}</span>
+                       {count > 1 && <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 rounded-full">x{count}</span>}
+                     </div>
+                   );
+                 })}
                </div>
             </section>
           </div>
