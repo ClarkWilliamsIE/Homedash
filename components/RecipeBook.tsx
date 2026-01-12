@@ -31,7 +31,7 @@ const RecipeBook: React.FC<RecipeBookProps> = ({ recipes, onRefresh, onAddRecipe
     try {
       const ai = new GoogleGenAI({ apiKey: API_KEY! });
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-lite', 
+        model: 'gemini-1.5-flash', 
         contents: `Extract recipe details from this URL: ${importUrl}. 
         
         IMPORTANT: Return ONLY a raw JSON object. Do not include markdown formatting, backticks, or explanations.
@@ -45,17 +45,28 @@ const RecipeBook: React.FC<RecipeBookProps> = ({ recipes, onRefresh, onAddRecipe
           "imageUrl": "string (main photo URL)"
         }`,
         config: {
-          // We keep the tool so it can read the URL
+          // Keep the search tool so it can read the URL
           tools: [{ googleSearch: {} }],
-          // We REMOVED responseMimeType & responseSchema to avoid the conflict error
+          // Ensure we don't force strict JSON mode which causes conflicts with tools
         }
       });
       
-      const text = response.text();
-      if (!text) throw new Error("No response from AI");
-      
-      // Manually clean the response in case the model adds Markdown
-      const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      // --- ROBUST TEXT EXTRACTION ---
+      // This helper handles different response structures safely
+      let rawText = '';
+      if (typeof response.text === 'function') {
+        rawText = response.text();
+      } else if (response.candidates && response.candidates[0] && response.candidates[0].content && response.candidates[0].content.parts) {
+        // Fallback: Manually dig for the text in the candidates array
+        rawText = response.candidates[0].content.parts.map((p: any) => p.text).join('');
+      } else {
+        console.error("Unexpected API Response:", response);
+        throw new Error("Could not find text in AI response");
+      }
+      // ------------------------------
+
+      // Clean the response (remove Markdown code blocks if present)
+      const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
       const data = JSON.parse(cleanJson);
 
       setNewRecipe({
