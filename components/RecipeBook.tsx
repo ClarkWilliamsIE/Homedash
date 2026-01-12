@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { Recipe } from '../types';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -57,7 +56,11 @@ const RecipeBook: React.FC<RecipeBookProps> = ({ recipes, onRefresh, onAddRecipe
         }
       });
       
-      const data = JSON.parse(response.text);
+      // FIX: Call text() as a function, not a property
+      const text = response.text();
+      if (!text) throw new Error("No response from AI");
+      
+      const data = JSON.parse(text);
       setNewRecipe({
         name: data.name || '',
         ingredients: data.ingredients || '',
