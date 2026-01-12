@@ -1,25 +1,22 @@
-
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState } from 'react';
 import { WeeklyPlan, Recipe } from '../types';
 import { SPREADSHEET_ID } from '../constants';
+import { ManualItem } from '../App';
 
 interface ShoppingListProps {
   weeklyPlan: WeeklyPlan;
   authToken: string | null;
+  // NEW PROPS for Syncing
+  manualItems: ManualItem[];
+  onUpdateItems: (items: ManualItem[]) => void;
 }
 
-const ShoppingList: React.FC<ShoppingListProps> = ({ weeklyPlan, authToken }) => {
+const ShoppingList: React.FC<ShoppingListProps> = ({ weeklyPlan, authToken, manualItems, onUpdateItems }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [manualItem, setManualItem] = useState('');
-  const [manualItems, setManualItems] = useState<{id: string, name: string, checked: boolean}[]>(() => {
-    const saved = localStorage.getItem('family_manual_shopping');
-    return saved ? JSON.parse(saved) : [];
-  });
 
-  useEffect(() => {
-    localStorage.setItem('family_manual_shopping', JSON.stringify(manualItems));
-  }, [manualItems]);
+  // NOTE: LocalStorage effect removed because App.tsx handles the sync now!
 
   const selectedRecipes = useMemo(() => {
     return Object.values(weeklyPlan).filter(r => r !== null) as Recipe[];
@@ -38,18 +35,21 @@ const ShoppingList: React.FC<ShoppingListProps> = ({ weeklyPlan, authToken }) =>
 
   const addManualItem = () => {
     if (!manualItem.trim()) return;
-    setManualItems(prev => [...prev, { id: Date.now().toString(), name: manualItem.trim(), checked: false }]);
+    // Update parent state directly
+    onUpdateItems([...manualItems, { id: Date.now().toString(), name: manualItem.trim(), checked: false }]);
     setManualItem('');
   };
 
   const toggleManualItem = (id: string) => {
-    setManualItems(prev => prev.map(i => i.id === id ? { ...i, checked: !i.checked } : i));
+    onUpdateItems(manualItems.map(i => i.id === id ? { ...i, checked: !i.checked } : i));
   };
 
   const removeManualItem = (id: string) => {
-    setManualItems(prev => prev.filter(i => i.id !== id));
+    onUpdateItems(manualItems.filter(i => i.id !== id));
   };
 
+  // This saves the "Receipt" to the main list (historical record)
+  // The state itself is already saved by App.tsx to SyncData
   const saveToSheet = async () => {
     if (!authToken) {
       alert("Please sign in to save your list to Google Sheets.");
@@ -74,15 +74,13 @@ const ShoppingList: React.FC<ShoppingListProps> = ({ weeklyPlan, authToken }) =>
         setSaveStatus('success');
         setTimeout(() => setSaveStatus('idle'), 3000);
       } else {
-        // --- NEW DEBUGGING CODE ---
-        // This will capture why Google is rejecting the request
-        const errorData = await res.json();
-        console.error("FULL API ERROR:", errorData);
-        alert(`Save failed: ${errorData.error?.message || "Unknown error"}`);
-        setSaveStatus('error');
+         const errorData = await res.json();
+         console.error("FULL API ERROR:", errorData);
+         alert(`Save failed: ${errorData.error?.message || "Unknown error"}`);
+         setSaveStatus('error');
       }
     } catch (err) { 
-      console.error("NETWORK ERROR:", err); 
+      console.error(err); 
       setSaveStatus('error'); 
     } finally { 
       setIsSaving(false); 
@@ -97,20 +95,18 @@ const ShoppingList: React.FC<ShoppingListProps> = ({ weeklyPlan, authToken }) =>
             <h3 className="text-2xl font-bold text-slate-800">Shopping List</h3>
             <p className="text-slate-500 font-medium">{selectedRecipes.length} recipes + {manualItems.length} custom items</p>
           </div>
-          <button onClick={saveToSheet} disabled={isSaving} className={`px-6 py-3 rounded-xl font-bold transition-all ${saveStatus === 'success' ? 'bg-green-500 text-white' : 'bg-indigo-600 text-white shadow-lg shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-50'}`}>
+          <button onClick={saveToSheet} disabled={isSaving} className={`px-6 py-3 rounded-xl font-bold transition-all ${saveStatus === 'success' ? 'bg-green-500 text-white' : saveStatus === 'error' ? 'bg-red-500 text-white' : 'bg-indigo-600 text-white shadow-lg shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-50'}`}>
             {isSaving ? 'Syncing...' : saveStatus === 'success' ? 'Synced!' : 'Export to Sheets'}
           </button>
         </div>
 
         <div className="p-8 space-y-8">
-          {/* Quick Add Bar */}
           <div className="flex gap-2">
             <input type="text" placeholder="Add extra milk, bread..." className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-100 outline-none" value={manualItem} onChange={e => setManualItem(e.target.value)} onKeyDown={e => e.key === 'Enter' && addManualItem()} />
             <button onClick={addManualItem} className="px-6 bg-indigo-50 text-indigo-600 font-bold rounded-xl hover:bg-indigo-100">Add</button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-            {/* Manual Items */}
             <section className="space-y-4">
                <h4 className="text-xs font-black uppercase text-slate-400 tracking-widest">Extra Items</h4>
                <div className="space-y-2">
@@ -124,7 +120,6 @@ const ShoppingList: React.FC<ShoppingListProps> = ({ weeklyPlan, authToken }) =>
                </div>
             </section>
 
-            {/* Aggregated Recipe Items */}
             <section className="space-y-4">
                <h4 className="text-xs font-black uppercase text-slate-400 tracking-widest">From Recipes</h4>
                <div className="space-y-2">
