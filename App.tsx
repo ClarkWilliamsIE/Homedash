@@ -6,21 +6,14 @@ import RecipeBook from './components/RecipeBook';
 import ShoppingList from './components/ShoppingList';
 import CalendarView from './components/CalendarView';
 
+// MOCK DATA for Preview Mode
 const MOCK_RECIPES: Recipe[] = [
-  { id: 'm1', name: 'Summer Avocado Toast', ingredients: ['Bread', 'Avocado', 'Lemon', 'Chili Flakes', 'Egg'], instructions: ['Toast the bread until golden.', 'Mash avocado with lemon and salt.', 'Spread on toast and top with a poached egg.'], imageUrl: 'https://images.unsplash.com/photo-1525351484163-7529414344d8?w=500&q=80', tags: ['Breakfast', 'Healthy'] },
-  { id: 'm2', name: 'Classic Italian Pasta', ingredients: ['Spaghetti', 'Tomato Sauce', 'Basil', 'Parmesan', 'Garlic'], instructions: ['Boil pasta in salted water.', 'Sauté garlic in oil.', 'Add sauce and basil, toss with pasta.'], imageUrl: 'https://images.unsplash.com/photo-1516100882582-96c3a05fe590?w=500&q=80', tags: ['Dinner', 'Italian'] },
-  { id: 'm3', name: 'Quinoa Buddha Bowl', ingredients: ['Quinoa', 'Chickpeas', 'Spinach', 'Tahini', 'Sweet Potato'], instructions: ['Roast sweet potatoes.', 'Cook quinoa according to package.', 'Assemble bowl and drizzle with tahini.'], imageUrl: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=500&q=80', tags: ['Lunch', 'Vegan'] },
+  { id: 'm1', name: 'Summer Avocado Toast', ingredients: ['Bread', 'Avocado', 'Lemon', 'Chili Flakes', 'Egg'], instructions: ['Toast bread.', 'Mash avocado.', 'Top with egg.'], imageUrl: 'https://images.unsplash.com/photo-1525351484163-7529414344d8?w=500&q=80', tags: ['Breakfast'] },
 ];
 
-const INITIAL_PLAN: WeeklyPlan = {
-  Sunday: null, Monday: null, Tuesday: null, Wednesday: null, Thursday: null, Friday: null, Saturday: null
-};
+const INITIAL_PLAN: WeeklyPlan = { Sunday: null, Monday: null, Tuesday: null, Wednesday: null, Thursday: null, Friday: null, Saturday: null };
 
-export interface ManualItem {
-  id: string;
-  name: string;
-  checked: boolean;
-}
+export interface ManualItem { id: string; name: string; checked: boolean; }
 
 const App: React.FC = () => {
   const [auth, setAuth] = useState<AuthState>({
@@ -35,12 +28,10 @@ const App: React.FC = () => {
   
   // -- SYNCED STATE --
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan>(INITIAL_PLAN);
-  const [notes, setNotes] = useState<FamilyNote[]>([{ id: '1', text: 'Welcome to your dashboard!', color: 'bg-yellow-100' }]);
+  const [notes, setNotes] = useState<FamilyNote[]>([{ id: '1', text: 'Welcome!', color: 'bg-yellow-100' }]);
   const [manualItems, setManualItems] = useState<ManualItem[]>([]);
-  
-  // New State for Shopping List features
   const [hiddenIngredients, setHiddenIngredients] = useState<string[]>([]);
-  const [checkedIngredients, setCheckedIngredients] = useState<string[]>([]); // For recipe items
+  const [checkedIngredients, setCheckedIngredients] = useState<string[]>([]);
 
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -49,13 +40,10 @@ const App: React.FC = () => {
   const isInitialLoad = useRef(true);
   const saveTimeout = useRef<any>(null);
 
-  // 1. LOGIN LOGIC
+  // --- LOGIN ---
   const login = () => {
     const google = (window as any).google;
-    if (!google || CLIENT_ID.includes('YOUR_GOOGLE')) {
-      alert("Please configure your CLIENT_ID first.");
-      return;
-    }
+    if (!google) return;
     const client = google.accounts.oauth2.initTokenClient({
       client_id: CLIENT_ID,
       scope: SCOPES,
@@ -81,9 +69,7 @@ const App: React.FC = () => {
 
   const fetchUserInfo = async (token: string) => {
     try {
-      const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: `Bearer ${token}` } });
       const user = await res.json();
       const userData = { name: user.name, email: user.email, picture: user.picture };
       sessionStorage.setItem('g_user', JSON.stringify(userData));
@@ -91,12 +77,12 @@ const App: React.FC = () => {
     } catch (err) { console.error(err); }
   };
 
-  // 2. DATA FETCHING
+  // --- DATA FETCHING ---
   const fetchData = useCallback(async () => {
-    if (isPreview || !auth.token || CLIENT_ID.includes('YOUR_GOOGLE')) return;
+    if (isPreview || !auth.token) return;
     setIsLoading(true);
     try {
-      // Load Recipes
+      // 1. Recipes
       const sheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Recipes!A2:F`, { headers: { Authorization: `Bearer ${auth.token}` } });
       const sheetData = await sheetRes.json();
       if (sheetData.values) {
@@ -110,17 +96,15 @@ const App: React.FC = () => {
         })));
       }
 
-      // Load Calendar
+      // 2. Calendar
       const now = new Date();
       now.setHours(0,0,0,0);
       const calendarRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${now.toISOString()}&maxResults=50&orderBy=startTime&singleEvents=true`, { headers: { Authorization: `Bearer ${auth.token}` } });
       const calendarData = await calendarRes.json();
       setCalendarEvents(calendarData.items || []);
 
-      // Load Synced App State
-      const syncRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/SyncData!A1?valueRenderOption=UNFORMATTED_VALUE`, { 
-        headers: { Authorization: `Bearer ${auth.token}` } 
-      });
+      // 3. App State (Plan, Notes, Shopping)
+      const syncRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/SyncData!A1?valueRenderOption=UNFORMATTED_VALUE`, { headers: { Authorization: `Bearer ${auth.token}` } });
       const syncData = await syncRes.json();
       
       if (syncData.values && syncData.values[0] && syncData.values[0][0]) {
@@ -131,17 +115,8 @@ const App: React.FC = () => {
           if (appState.manualItems) setManualItems(appState.manualItems);
           if (appState.hiddenIngredients) setHiddenIngredients(appState.hiddenIngredients);
           if (appState.checkedIngredients) setCheckedIngredients(appState.checkedIngredients);
-        } catch (e) { console.error("Failed to parse SyncData", e); }
-      } else {
-        // Fallback for first load
-        const savedPlan = localStorage.getItem('family_weekly_plan');
-        if (savedPlan) setWeeklyPlan(JSON.parse(savedPlan));
-        const savedNotes = localStorage.getItem('family_notes');
-        if (savedNotes) setNotes(JSON.parse(savedNotes));
-        const savedItems = localStorage.getItem('family_manual_shopping');
-        if (savedItems) setManualItems(JSON.parse(savedItems));
+        } catch (e) { console.error("Sync Parse Error", e); }
       }
-
     } catch (err) { console.error(err); } finally { 
       setIsLoading(false); 
       setTimeout(() => { isInitialLoad.current = false; }, 1000);
@@ -152,7 +127,7 @@ const App: React.FC = () => {
     if (auth.isAuthenticated && !isPreview) fetchData();
   }, [auth.isAuthenticated, fetchData, isPreview]);
 
-  // 3. AUTO-SAVE STATE (Debounced)
+  // --- AUTO-SAVE (SyncData) ---
   useEffect(() => {
     if (isPreview || !auth.token || isInitialLoad.current) return;
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
@@ -166,137 +141,83 @@ const App: React.FC = () => {
           headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ values: [[payload]] })
         });
-        // Local backups
-        localStorage.setItem('family_weekly_plan', JSON.stringify(weeklyPlan));
-        localStorage.setItem('family_notes', JSON.stringify(notes));
-        localStorage.setItem('family_manual_shopping', JSON.stringify(manualItems));
-      } catch (err) { console.error("Failed to sync state", err); } finally { setIsSyncing(false); }
+      } catch (err) { console.error("Sync Failed", err); } finally { setIsSyncing(false); }
     }, 2000);
 
     return () => clearTimeout(saveTimeout.current);
   }, [weeklyPlan, notes, manualItems, hiddenIngredients, checkedIngredients, auth.token, isPreview]);
 
+  // --- HELPERS ---
 
-  // 4. HELPER FUNCTIONS
+  // *** CRITICAL FIX: Upload Publicly ***
   const uploadToDrive = async (file: File): Promise<string | null> => {
     if (!auth.token) return null;
     try {
-      // 1. Upload the file
-      const metadata = {
-        name: `recipe_${Date.now()}_${file.name}`,
-        mimeType: file.type,
-      };
-      
+      const metadata = { name: `recipe_${Date.now()}_${file.name}`, mimeType: file.type };
       const formData = new FormData();
       formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
       formData.append('file', file);
 
-      // Note: We request the 'id' field in the response
+      // 1. Upload
       const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
         method: 'POST',
         headers: { Authorization: `Bearer ${auth.token}` },
         body: formData
       });
-      
       if (!res.ok) throw new Error("Upload failed");
       const data = await res.json();
       const fileId = data.id;
 
-      // 2. Make the file "Public" (Reader / Anyone)
-      // This prevents the "ServiceLogin" redirect loop because the browser doesn't need to sign in to see it.
+      // 2. Make Public (Reader/Anyone) - FIXES THE REDIRECT LOOP
       await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
         method: 'POST',
-        headers: { 
-            Authorization: `Bearer ${auth.token}`,
-            'Content-Type': 'application/json'
-        },
+        headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: 'reader', type: 'anyone' })
       });
 
-      // 3. Return a high-quality thumbnail link
-      // 'sz=w800' asks Google for a version 800px wide (perfect for dashboards)
+      // 3. Return Thumbnail Link
       return `https://drive.google.com/thumbnail?id=${fileId}&sz=w800`;
-
     } catch (err) {
       console.error("Drive upload failed", err);
       return null;
     }
-  };;
+  };
 
+  // *** CRITICAL FIX: Fresh Token for Saving ***
   const addRecipe = async (recipe: Omit<Recipe, 'id'>, imageFile?: File) => {
-    // 1. Get the freshest token directly from storage to avoid stale state
-    const freshToken = sessionStorage.getItem('g_access_token');
+    const freshToken = sessionStorage.getItem('g_access_token'); // Force fresh token
 
-    // 2. Handle Image Upload
     let finalImageUrl = recipe.imageUrl;
     if (imageFile && !isPreview && freshToken) {
-      // Use freshToken here too if your upload function supports passing it
-      // For now, we assume uploadToDrive uses auth.token from state, which is usually fine
       const uploadedUrl = await uploadToDrive(imageFile);
       if (uploadedUrl) finalImageUrl = uploadedUrl;
     }
 
-    // 3. Handle Preview Mode
     if (isPreview) {
-      const newRecipe = { ...recipe, imageUrl: finalImageUrl, id: Date.now().toString() };
-      setRecipes(prev => [newRecipe, ...prev]);
+      setRecipes(prev => [{ ...recipe, imageUrl: finalImageUrl, id: Date.now().toString() }, ...prev]);
       return true;
     }
 
-    // 4. Debugging: Log what we are sending (Check your console if this fails!)
-    console.log("Saving to Sheet:", SPREADSHEET_ID);
-    console.log("Using Token:", freshToken ? "Token Exists" : "TOKEN MISSING");
-
     if (!freshToken) {
-        alert("Authentication lost. Please refresh the page and sign in again.");
+        alert("Session expired. Please refresh.");
         return false;
     }
 
     try {
       const instructionsString = (recipe.instructions || []).join(' || ');
-      
-      // 5. The Fetch Call (Using freshToken)
       const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Recipes!A2:F:append?valueInputOption=USER_ENTERED`, {
         method: 'POST',
-        headers: { 
-            Authorization: `Bearer ${freshToken}`, // FORCED FRESH TOKEN
-            'Content-Type': 'application/json' 
-        },
-        body: JSON.stringify({ 
-            values: [[
-                recipe.name, 
-                recipe.ingredients.join(', '), 
-                finalImageUrl, 
-                recipe.tags.join(', '), 
-                instructionsString
-            ]] 
-        })
+        headers: { Authorization: `Bearer ${freshToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ values: [[recipe.name, recipe.ingredients.join(', '), finalImageUrl, recipe.tags.join(', '), instructionsString]] })
       });
-
-      if (res.ok) {
-        fetchData();
-        return true;
-      } else {
-        // 6. Detailed Error Logging
-        const errData = await res.json();
-        console.error("Sheet Error:", errData);
-        alert(`Save failed: ${errData.error?.message || "Check console for details"}`);
-      }
-    } catch (err) { 
-        console.error(err); 
-        alert("Network error. Check console.");
-    }
+      if (res.ok) { fetchData(); return true; }
+    } catch (err) { console.error(err); }
     return false;
   };
 
   const addEvent = async (event: { summary: string; start: string; allDay: boolean }) => {
     if (isPreview) {
-      setCalendarEvents(prev => [{
-        id: Date.now().toString(),
-        summary: event.summary,
-        start: event.allDay ? { date: event.start } : { dateTime: event.start },
-        end: event.allDay ? { date: event.start } : { dateTime: new Date(new Date(event.start).getTime() + 3600000).toISOString() }
-      }, ...prev]);
+      setCalendarEvents(prev => [{ id: Date.now().toString(), summary: event.summary, start: { dateTime: event.start }, end: { dateTime: event.start } }]);
       return true;
     }
     try {
@@ -305,27 +226,21 @@ const App: React.FC = () => {
         start: event.allDay ? { date: event.start } : { dateTime: event.start },
         end: event.allDay ? { date: event.start } : { dateTime: new Date(new Date(event.start).getTime() + 3600000).toISOString() }
       };
-      const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+      await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
         method: 'POST',
         headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
-      if (res.ok) { fetchData(); return true; }
-    } catch (err) { console.error(err); }
-    return false;
+      fetchData(); return true;
+    } catch (err) { console.error(err); return false; }
   };
 
   if (!auth.isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
         <div className="bg-white rounded-[2.5rem] shadow-xl p-12 max-w-md w-full text-center space-y-8">
-          <div className="w-20 h-20 bg-indigo-600 rounded-3xl mx-auto flex items-center justify-center text-white shadow-lg">
-             <ICONS.Dashboard />
-          </div>
-          <div>
-            <h1 className="text-3xl font-black text-slate-900 tracking-tight">Family Harmony</h1>
-            <p className="text-slate-500 mt-2">Sign in to sync your family's life.</p>
-          </div>
+          <div className="w-20 h-20 bg-indigo-600 rounded-3xl mx-auto flex items-center justify-center text-white shadow-lg"><ICONS.Dashboard /></div>
+          <div><h1 className="text-3xl font-black text-slate-900 tracking-tight">Family Harmony</h1><p className="text-slate-500 mt-2">Sign in to sync your family's life.</p></div>
           <button onClick={login} className="w-full flex items-center justify-center gap-3 bg-slate-900 text-white py-4 rounded-2xl font-bold hover:bg-slate-800 transition-all shadow-lg">Sign in with Google</button>
         </div>
       </div>
@@ -349,19 +264,13 @@ const App: React.FC = () => {
             { id: View.Recipes, label: 'Recipe Book', icon: <ICONS.Recipes /> },
             { id: View.ShoppingList, label: 'Shopping List', icon: <ICONS.Shopping /> },
           ].map((item) => (
-            <button key={item.id} onClick={() => setCurrentView(item.id)} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${currentView === item.id ? 'bg-indigo-50 text-indigo-600 font-bold shadow-sm' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}>
-              {item.icon}
-              {item.label}
-            </button>
+            <button key={item.id} onClick={() => setCurrentView(item.id)} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${currentView === item.id ? 'bg-indigo-50 text-indigo-600 font-bold shadow-sm' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}>{item.icon} {item.label}</button>
           ))}
         </div>
         <div className="pt-6 border-t border-slate-100 space-y-4">
           <div className="flex items-center gap-3 px-2">
             <img src={auth.user?.picture} className="w-10 h-10 rounded-full border border-slate-200" alt="Avatar" />
-            <div className="flex-1 overflow-hidden">
-              <p className="text-sm font-semibold text-slate-900 truncate">{auth.user?.name}</p>
-              <p className="text-xs text-slate-500 truncate">{auth.user?.email}</p>
-            </div>
+            <div className="flex-1 overflow-hidden"><p className="text-sm font-semibold text-slate-900 truncate">{auth.user?.name}</p><p className="text-xs text-slate-500 truncate">{auth.user?.email}</p></div>
           </div>
           <button onClick={logout} className="w-full flex items-center justify-center gap-2 py-2 text-sm text-slate-400 hover:text-red-600 transition-colors">Sign Out</button>
         </div>
@@ -369,48 +278,13 @@ const App: React.FC = () => {
 
       <main className="flex-1 bg-slate-50 p-4 md:p-10 overflow-y-auto">
         {currentView === View.Dashboard && (
-          <Dashboard 
-            events={calendarEvents} 
-            weeklyPlan={weeklyPlan}
-            recipes={recipes}
-            onUpdateMeal={(day, recipe) => setWeeklyPlan(prev => ({ ...prev, [day]: recipe }))}
-            onDragDrop={(src, tgt) => setWeeklyPlan(prev => {
-              const next = {...prev};
-              const tmp = next[src];
-              next[src] = next[tgt];
-              next[tgt] = tmp;
-              return next;
-            })}
-            notes={notes}
-            onAddNote={(text) => setNotes(prev => [{ id: Date.now().toString(), text, color: 'bg-yellow-100' }, ...prev])}
-            onRemoveNote={(id) => setNotes(prev => prev.filter(n => n.id !== id))}
-          />
+          <Dashboard events={calendarEvents} weeklyPlan={weeklyPlan} recipes={recipes} onUpdateMeal={(day, recipe) => setWeeklyPlan(prev => ({ ...prev, [day]: recipe }))} onDragDrop={(src, tgt) => setWeeklyPlan(prev => { const next = {...prev}; const tmp = next[src]; next[src] = next[tgt]; next[tgt] = tmp; return next; })} notes={notes} onAddNote={(text) => setNotes(prev => [{ id: Date.now().toString(), text, color: 'bg-yellow-100' }, ...prev])} onRemoveNote={(id) => setNotes(prev => prev.filter(n => n.id !== id))} />
         )}
-        {currentView === View.Recipes && (
-          <RecipeBook 
-            recipes={recipes} 
-            onRefresh={fetchData} 
-            onAddRecipe={addRecipe}
-          />
-        )}
+        {currentView === View.Recipes && <RecipeBook recipes={recipes} onRefresh={fetchData} onAddRecipe={addRecipe} />}
         {currentView === View.ShoppingList && (
-          <ShoppingList 
-            weeklyPlan={weeklyPlan} 
-            authToken={isPreview ? null : auth.token}
-            manualItems={manualItems}
-            onUpdateItems={setManualItems}
-            hiddenIngredients={hiddenIngredients}
-            onUpdateHidden={setHiddenIngredients}
-            checkedIngredients={checkedIngredients}
-            onUpdateChecked={setCheckedIngredients}
-          />
+          <ShoppingList weeklyPlan={weeklyPlan} authToken={isPreview ? null : auth.token} manualItems={manualItems} onUpdateItems={setManualItems} hiddenIngredients={hiddenIngredients} onUpdateHidden={setHiddenIngredients} checkedIngredients={checkedIngredients} onUpdateChecked={setCheckedIngredients} />
         )}
-        {currentView === View.Calendar && (
-          <CalendarView 
-            events={calendarEvents} 
-            onAddEvent={addEvent}
-          />
-        )}
+        {currentView === View.Calendar && <CalendarView events={calendarEvents} onAddEvent={addEvent} />}
       </main>
     </div>
   );
