@@ -63,16 +63,30 @@ const ShoppingList: React.FC<ShoppingListProps> = ({ weeklyPlan, authToken }) =>
         ...aggregatedIngredients.map(([item]) => ['Recipe Ingredient', item]),
         ...manualItems.map(item => ['Manual Add', item.name])
       ];
+
       const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/ShoppingList!A1:append?valueInputOption=USER_ENTERED`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ values })
       });
+
       if (res.ok) {
         setSaveStatus('success');
         setTimeout(() => setSaveStatus('idle'), 3000);
+      } else {
+        // --- NEW DEBUGGING CODE ---
+        // This will capture why Google is rejecting the request
+        const errorData = await res.json();
+        console.error("FULL API ERROR:", errorData);
+        alert(`Save failed: ${errorData.error?.message || "Unknown error"}`);
+        setSaveStatus('error');
       }
-    } catch (err) { console.error(err); setSaveStatus('error'); } finally { setIsSaving(false); }
+    } catch (err) { 
+      console.error("NETWORK ERROR:", err); 
+      setSaveStatus('error'); 
+    } finally { 
+      setIsSaving(false); 
+    }
   };
 
   return (
