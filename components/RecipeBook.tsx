@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Recipe } from '../types';
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { API_KEY } from '../constants';
 
 interface RecipeBookProps {
@@ -31,40 +31,36 @@ const RecipeBook: React.FC<RecipeBookProps> = ({ recipes, onRefresh, onAddRecipe
     try {
       const ai = new GoogleGenAI({ apiKey: API_KEY! });
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-2.5-flash-lite', 
         contents: `Extract recipe details from this URL: ${importUrl}. 
-        Return JSON with:
-        - name: string
-        - ingredients: string (comma separated)
-        - instructions: string (JOINED BY '||')
-        - tags: string (comma separated)
-        - imageUrl: string (the best quality main photo link found)`,
+        
+        IMPORTANT: Return ONLY a raw JSON object. Do not include markdown formatting, backticks, or explanations.
+        
+        The JSON must match this structure:
+        {
+          "name": "string",
+          "ingredients": "string (comma separated)",
+          "instructions": "string (steps JOINED BY '||')",
+          "tags": "string (comma separated)",
+          "imageUrl": "string (main photo URL)"
+        }`,
         config: {
+          // We keep the tool so it can read the URL
           tools: [{ googleSearch: {} }],
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              name: { type: Type.STRING },
-              ingredients: { type: Type.STRING },
-              instructions: { type: Type.STRING },
-              tags: { type: Type.STRING },
-              imageUrl: { type: Type.STRING }
-            },
-            required: ["name", "ingredients", "instructions"]
-          }
+          // We REMOVED responseMimeType & responseSchema to avoid the conflict error
         }
       });
       
-      // FIX: Call text() as a function, not a property
       const text = response.text();
       if (!text) throw new Error("No response from AI");
       
-      const data = JSON.parse(text);
+      // Manually clean the response in case the model adds Markdown
+      const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const data = JSON.parse(cleanJson);
+
       setNewRecipe({
         name: data.name || '',
         ingredients: data.ingredients || '',
-        // Convert the Delimiter-joined instructions into clean newlines for the textarea
         instructions: data.instructions?.split('||').map((s: string) => s.trim()).join('\n') || '',
         tags: data.tags || '',
         imageUrl: data.imageUrl || ''
@@ -73,7 +69,8 @@ const RecipeBook: React.FC<RecipeBookProps> = ({ recipes, onRefresh, onAddRecipe
       setImportUrl('');
     } catch (err) {
       console.error("Scraping failed", err);
-      alert("AI couldn't extract the recipe details automatically. Please enter them manually.");
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      alert(`AI Import failed: ${msg}. Try entering manually.`);
     } finally {
       setIsScraping(false);
     }
@@ -97,8 +94,6 @@ const RecipeBook: React.FC<RecipeBookProps> = ({ recipes, onRefresh, onAddRecipe
     const success = await onAddRecipe({
       name: newRecipe.name,
       ingredients: newRecipe.ingredients.split(',').map(s => s.trim()),
-      // Convert newlines from the textarea back to our storage delimiter if needed, 
-      // but App.tsx handles the final conversion to || for Sheets.
       instructions: newRecipe.instructions.split('\n').map(s => s.trim()).filter(s => s),
       tags: newRecipe.tags.split(',').map(s => s.trim()),
       imageUrl: newRecipe.imageUrl || `https://picsum.photos/seed/${newRecipe.name}/400/300`
@@ -166,7 +161,6 @@ const RecipeBook: React.FC<RecipeBookProps> = ({ recipes, onRefresh, onAddRecipe
         ))}
       </div>
 
-      {/* Recipe Detail Modal */}
       {viewingRecipe && (
         <div className="fixed inset-0 z-[100] bg-white md:bg-black/60 md:backdrop-blur-md flex items-center justify-center md:p-10">
           <div className="bg-white w-full h-full md:max-w-6xl md:h-[90vh] md:rounded-[3rem] shadow-2xl overflow-hidden flex flex-col relative">
@@ -174,7 +168,6 @@ const RecipeBook: React.FC<RecipeBookProps> = ({ recipes, onRefresh, onAddRecipe
             
             <div className="flex-1 overflow-y-auto">
               <div className="grid grid-cols-1 lg:grid-cols-2 h-full">
-                {/* Visual Header */}
                 <div className="relative h-80 lg:h-full bg-slate-100">
                   <img src={viewingRecipe.imageUrl} className="w-full h-full object-cover" alt={viewingRecipe.name} />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent lg:hidden"></div>
@@ -183,7 +176,6 @@ const RecipeBook: React.FC<RecipeBookProps> = ({ recipes, onRefresh, onAddRecipe
                   </div>
                 </div>
 
-                {/* Content Side */}
                 <div className="p-8 lg:p-16 space-y-12">
                   <div className="hidden lg:block">
                     <div className="flex gap-2 mb-4">
@@ -193,7 +185,6 @@ const RecipeBook: React.FC<RecipeBookProps> = ({ recipes, onRefresh, onAddRecipe
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-                    {/* Ingredients Column */}
                     <div>
                       <h3 className="text-sm font-black uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2">
                         <svg className="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
@@ -211,7 +202,6 @@ const RecipeBook: React.FC<RecipeBookProps> = ({ recipes, onRefresh, onAddRecipe
                       </ul>
                     </div>
 
-                    {/* Method Column */}
                     <div className="md:border-l md:border-slate-100 md:pl-12">
                       <h3 className="text-sm font-black uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2">
                         <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
@@ -237,7 +227,6 @@ const RecipeBook: React.FC<RecipeBookProps> = ({ recipes, onRefresh, onAddRecipe
         </div>
       )}
 
-      {/* Add Recipe Modal */}
       {isAdding && (
         <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl p-8 my-8 relative">
