@@ -196,24 +196,68 @@ const App: React.FC = () => {
   };
 
   const addRecipe = async (recipe: Omit<Recipe, 'id'>, imageFile?: File) => {
+    // 1. Get the freshest token directly from storage to avoid stale state
+    const freshToken = sessionStorage.getItem('g_access_token');
+
+    // 2. Handle Image Upload
     let finalImageUrl = recipe.imageUrl;
-    if (imageFile && !isPreview) {
+    if (imageFile && !isPreview && freshToken) {
+      // Use freshToken here too if your upload function supports passing it
+      // For now, we assume uploadToDrive uses auth.token from state, which is usually fine
       const uploadedUrl = await uploadToDrive(imageFile);
       if (uploadedUrl) finalImageUrl = uploadedUrl;
     }
+
+    // 3. Handle Preview Mode
     if (isPreview) {
-      setRecipes(prev => [{ ...recipe, imageUrl: finalImageUrl, id: Date.now().toString() }, ...prev]);
+      const newRecipe = { ...recipe, imageUrl: finalImageUrl, id: Date.now().toString() };
+      setRecipes(prev => [newRecipe, ...prev]);
       return true;
     }
+
+    // 4. Debugging: Log what we are sending (Check your console if this fails!)
+    console.log("Saving to Sheet:", SPREADSHEET_ID);
+    console.log("Using Token:", freshToken ? "Token Exists" : "TOKEN MISSING");
+
+    if (!freshToken) {
+        alert("Authentication lost. Please refresh the page and sign in again.");
+        return false;
+    }
+
     try {
       const instructionsString = (recipe.instructions || []).join(' || ');
+      
+      // 5. The Fetch Call (Using freshToken)
       const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Recipes!A2:F:append?valueInputOption=USER_ENTERED`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ values: [[recipe.name, recipe.ingredients.join(', '), finalImageUrl, recipe.tags.join(', '), instructionsString]] })
+        headers: { 
+            Authorization: `Bearer ${freshToken}`, // FORCED FRESH TOKEN
+            'Content-Type': 'application/json' 
+        },
+        body: JSON.stringify({ 
+            values: [[
+                recipe.name, 
+                recipe.ingredients.join(', '), 
+                finalImageUrl, 
+                recipe.tags.join(', '), 
+                instructionsString
+            ]] 
+        })
       });
-      if (res.ok) { fetchData(); return true; }
-    } catch (err) { console.error(err); }
+
+      if (res.ok) {
+        fetchData();
+        return true;
+      } else {
+        // 6. Detailed Error Logging
+        const errData = await res.json();
+        console.error("Sheet Error:", errData);
+        alert(`Save failed: ${errData.error?.message || "Check console for details"}`);
+      }
+    } catch (err) { 
+        console.error(err); 
+        alert("Network error. Check console.");
+    }
     return false;
   };
 
