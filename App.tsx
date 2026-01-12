@@ -181,19 +181,47 @@ const App: React.FC = () => {
   const uploadToDrive = async (file: File): Promise<string | null> => {
     if (!auth.token) return null;
     try {
-      const metadata = { name: `recipe_${Date.now()}_${file.name}`, mimeType: file.type };
+      // 1. Upload the file
+      const metadata = {
+        name: `recipe_${Date.now()}_${file.name}`,
+        mimeType: file.type,
+      };
+      
       const formData = new FormData();
       formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
       formData.append('file', file);
-      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+
+      // Note: We request the 'id' field in the response
+      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
         method: 'POST',
         headers: { Authorization: `Bearer ${auth.token}` },
         body: formData
       });
+      
+      if (!res.ok) throw new Error("Upload failed");
       const data = await res.json();
-      return `https://lh3.googleusercontent.com/u/0/d/${data.id}`;
-    } catch (err) { console.error("Drive upload failed", err); return null; }
-  };
+      const fileId = data.id;
+
+      // 2. Make the file "Public" (Reader / Anyone)
+      // This prevents the "ServiceLogin" redirect loop because the browser doesn't need to sign in to see it.
+      await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
+        method: 'POST',
+        headers: { 
+            Authorization: `Bearer ${auth.token}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ role: 'reader', type: 'anyone' })
+      });
+
+      // 3. Return a high-quality thumbnail link
+      // 'sz=w800' asks Google for a version 800px wide (perfect for dashboards)
+      return `https://drive.google.com/thumbnail?id=${fileId}&sz=w800`;
+
+    } catch (err) {
+      console.error("Drive upload failed", err);
+      return null;
+    }
+  };;
 
   const addRecipe = async (recipe: Omit<Recipe, 'id'>, imageFile?: File) => {
     // 1. Get the freshest token directly from storage to avoid stale state
