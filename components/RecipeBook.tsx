@@ -31,7 +31,7 @@ const RecipeBook: React.FC<RecipeBookProps> = ({ recipes, onRefresh, onAddRecipe
     try {
       const ai = new GoogleGenAI({ apiKey: API_KEY! });
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-lite',
+        model: 'gemini-1.5-flash',
         contents: `Extract recipe details from this URL: ${importUrl}. 
         Return JSON with:
         - name: string
