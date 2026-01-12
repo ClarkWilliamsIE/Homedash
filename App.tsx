@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AuthState, View, Recipe, CalendarEvent, WeeklyPlan, FamilyNote } from './types';
 import { CLIENT_ID, SPREADSHEET_ID, SCOPES, ICONS } from './constants';
 import Dashboard from './components/Dashboard';
@@ -17,6 +16,13 @@ const INITIAL_PLAN: WeeklyPlan = {
   Sunday: null, Monday: null, Tuesday: null, Wednesday: null, Thursday: null, Friday: null, Saturday: null
 };
 
+// Define the manual item type here so we can pass it down
+export interface ManualItem {
+  id: string;
+  name: string;
+  checked: boolean;
+}
+
 const App: React.FC = () => {
   const [auth, setAuth] = useState<AuthState>({
     token: sessionStorage.getItem('g_access_token'),
@@ -27,25 +33,21 @@ const App: React.FC = () => {
   const [isPreview, setIsPreview] = useState(sessionStorage.getItem('preview_mode') === 'true');
   const [currentView, setCurrentView] = useState<View>(View.Dashboard);
   const [recipes, setRecipes] = useState<Recipe[]>(isPreview ? MOCK_RECIPES : []);
-  const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan>(() => {
-    const saved = localStorage.getItem('family_weekly_plan');
-    return saved ? JSON.parse(saved) : INITIAL_PLAN;
-  });
-  const [notes, setNotes] = useState<FamilyNote[]>(() => {
-    const saved = localStorage.getItem('family_notes');
-    return saved ? JSON.parse(saved) : [{ id: '1', text: 'Welcome to your dashboard!', color: 'bg-yellow-100' }];
-  });
+  
+  // -- SYNCED STATE --
+  const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan>(INITIAL_PLAN);
+  const [notes, setNotes] = useState<FamilyNote[]>([{ id: '1', text: 'Welcome to your dashboard!', color: 'bg-yellow-100' }]);
+  const [manualItems, setManualItems] = useState<ManualItem[]>([]);
+  
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
-  useEffect(() => {
-    localStorage.setItem('family_weekly_plan', JSON.stringify(weeklyPlan));
-  }, [weeklyPlan]);
+  // Use a ref to prevent saving when we are just loading data
+  const isInitialLoad = useRef(true);
+  const saveTimeout = useRef<any>(null);
 
-  useEffect(() => {
-    localStorage.setItem('family_notes', JSON.stringify(notes));
-  }, [notes]);
-
+  // 1. LOGIN LOGIC
   const login = () => {
     const google = (window as any).google;
     if (!google || CLIENT_ID.includes('YOUR_GOOGLE')) {
@@ -87,10 +89,12 @@ const App: React.FC = () => {
     } catch (err) { console.error(err); }
   };
 
+  // 2. DATA FETCHING (Recipes, Calendar, AND SyncData)
   const fetchData = useCallback(async () => {
     if (isPreview || !auth.token || CLIENT_ID.includes('YOUR_GOOGLE')) return;
     setIsLoading(true);
     try {
+      // A. Load Recipes
       const sheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Recipes!A2:F`, { headers: { Authorization: `Bearer ${auth.token}` } });
       const sheetData = await sheetRes.json();
       if (sheetData.values) {
@@ -103,37 +107,98 @@ const App: React.FC = () => {
           instructions: row[4]?.split('||').map((s: string) => s.trim()) || []
         })));
       }
+
+      // B. Load Calendar
       const now = new Date();
       now.setHours(0,0,0,0);
       const calendarRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${now.toISOString()}&maxResults=50&orderBy=startTime&singleEvents=true`, { headers: { Authorization: `Bearer ${auth.token}` } });
       const calendarData = await calendarRes.json();
       setCalendarEvents(calendarData.items || []);
-    } catch (err) { console.error(err); } finally { setIsLoading(false); }
+
+      // C. Load Synced App State (Plan, Notes, Shopping List)
+      const syncRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/SyncData!A1?valueRenderOption=UNFORMATTED_VALUE`, { 
+        headers: { Authorization: `Bearer ${auth.token}` } 
+      });
+      const syncData = await syncRes.json();
+      
+      if (syncData.values && syncData.values[0] && syncData.values[0][0]) {
+        // We found data in the sheet! Parse it.
+        try {
+          const appState = JSON.parse(syncData.values[0][0]);
+          if (appState.weeklyPlan) setWeeklyPlan(appState.weeklyPlan);
+          if (appState.notes) setNotes(appState.notes);
+          if (appState.manualItems) setManualItems(appState.manualItems);
+        } catch (e) {
+          console.error("Failed to parse SyncData", e);
+        }
+      } else {
+        // No data in sheet yet? Try to fallback to localStorage for the first migration
+        const savedPlan = localStorage.getItem('family_weekly_plan');
+        if (savedPlan) setWeeklyPlan(JSON.parse(savedPlan));
+        const savedNotes = localStorage.getItem('family_notes');
+        if (savedNotes) setNotes(JSON.parse(savedNotes));
+        const savedItems = localStorage.getItem('family_manual_shopping');
+        if (savedItems) setManualItems(JSON.parse(savedItems));
+      }
+
+    } catch (err) { console.error(err); } finally { 
+      setIsLoading(false); 
+      // Allow saving after initial load is done
+      setTimeout(() => { isInitialLoad.current = false; }, 1000);
+    }
   }, [auth.token, isPreview]);
 
   useEffect(() => {
     if (auth.isAuthenticated && !isPreview) fetchData();
   }, [auth.isAuthenticated, fetchData, isPreview]);
 
+  // 3. AUTO-SAVE TO SHEET (Debounced)
+  useEffect(() => {
+    if (isPreview || !auth.token || isInitialLoad.current) return;
+
+    // Clear previous timeout
+    if (saveTimeout.current) clearTimeout(saveTimeout.current);
+
+    // Set new timeout to save after 2 seconds of inactivity
+    saveTimeout.current = setTimeout(async () => {
+      setIsSyncing(true);
+      try {
+        const payload = JSON.stringify({ weeklyPlan, notes, manualItems });
+        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/SyncData!A1?valueInputOption=USER_ENTERED`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ values: [[payload]] })
+        });
+        // Also update local storage as a backup
+        localStorage.setItem('family_weekly_plan', JSON.stringify(weeklyPlan));
+        localStorage.setItem('family_notes', JSON.stringify(notes));
+        localStorage.setItem('family_manual_shopping', JSON.stringify(manualItems));
+      } catch (err) {
+        console.error("Failed to sync state", err);
+      } finally {
+        setIsSyncing(false);
+      }
+    }, 2000); // 2 second delay
+
+    return () => clearTimeout(saveTimeout.current);
+  }, [weeklyPlan, notes, manualItems, auth.token, isPreview]);
+
+
+  // 4. HELPER FUNCTIONS
   const uploadToDrive = async (file: File): Promise<string | null> => {
     if (!auth.token) return null;
     try {
-      const metadata = {
-        name: `recipe_${Date.now()}_${file.name}`,
-        mimeType: file.type,
-      };
-      
+      const metadata = { name: `recipe_${Date.now()}_${file.name}`, mimeType: file.type };
       const formData = new FormData();
       formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
       formData.append('file', file);
-
       const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
         method: 'POST',
         headers: { Authorization: `Bearer ${auth.token}` },
         body: formData
       });
       const data = await res.json();
-      return `https://lh3.googleusercontent.com/u/0/d/${data.id}`;
+      return `https://lh3.googleusercontent.com/u/0/d/${data.id}`; // Simple drive proxy URL format
     } catch (err) {
       console.error("Drive upload failed", err);
       return null;
@@ -142,18 +207,14 @@ const App: React.FC = () => {
 
   const addRecipe = async (recipe: Omit<Recipe, 'id'>, imageFile?: File) => {
     let finalImageUrl = recipe.imageUrl;
-
     if (imageFile && !isPreview) {
       const uploadedUrl = await uploadToDrive(imageFile);
       if (uploadedUrl) finalImageUrl = uploadedUrl;
     }
-
     if (isPreview) {
-      const newRecipe = { ...recipe, imageUrl: finalImageUrl, id: Date.now().toString() };
-      setRecipes(prev => [newRecipe, ...prev]);
+      setRecipes(prev => [{ ...recipe, imageUrl: finalImageUrl, id: Date.now().toString() }, ...prev]);
       return true;
     }
-
     try {
       const instructionsString = (recipe.instructions || []).join(' || ');
       const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Recipes!A2:F:append?valueInputOption=USER_ENTERED`, {
@@ -161,23 +222,19 @@ const App: React.FC = () => {
         headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ values: [[recipe.name, recipe.ingredients.join(', '), finalImageUrl, recipe.tags.join(', '), instructionsString]] })
       });
-      if (res.ok) {
-        fetchData();
-        return true;
-      }
+      if (res.ok) { fetchData(); return true; }
     } catch (err) { console.error(err); }
     return false;
   };
 
   const addEvent = async (event: { summary: string; start: string; allDay: boolean }) => {
     if (isPreview) {
-      const newEvent: CalendarEvent = {
+      setCalendarEvents(prev => [{
         id: Date.now().toString(),
         summary: event.summary,
         start: event.allDay ? { date: event.start } : { dateTime: event.start },
         end: event.allDay ? { date: event.start } : { dateTime: new Date(new Date(event.start).getTime() + 3600000).toISOString() }
-      };
-      setCalendarEvents(prev => [newEvent, ...prev]);
+      }, ...prev]);
       return true;
     }
     try {
@@ -191,10 +248,7 @@ const App: React.FC = () => {
         headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
-      if (res.ok) {
-        fetchData();
-        return true;
-      }
+      if (res.ok) { fetchData(); return true; }
     } catch (err) { console.error(err); }
     return false;
   };
@@ -210,17 +264,7 @@ const App: React.FC = () => {
             <h1 className="text-3xl font-black text-slate-900 tracking-tight">Family Harmony</h1>
             <p className="text-slate-500 mt-2">Sign in to sync your family's life.</p>
           </div>
-          <div className="space-y-4 pt-4">
-            <button onClick={login} className="w-full flex items-center justify-center gap-3 bg-slate-900 text-white py-4 rounded-2xl font-bold hover:bg-slate-800 transition-all shadow-lg">Sign in with Google</button>
-            <button onClick={() => {
-              const userData = { name: "Family Member", email: "preview@example.com", picture: "https://api.dicebear.com/7.x/avataaars/svg?seed=preview" };
-              sessionStorage.setItem('preview_mode', 'true');
-              sessionStorage.setItem('g_user', JSON.stringify(userData));
-              setAuth({ token: 'mock-token', user: userData, isAuthenticated: true });
-              setIsPreview(true);
-              setRecipes(MOCK_RECIPES);
-            }} className="w-full text-slate-400 font-semibold hover:text-indigo-600 transition-colors">Try Preview Mode</button>
-          </div>
+          <button onClick={login} className="w-full flex items-center justify-center gap-3 bg-slate-900 text-white py-4 rounded-2xl font-bold hover:bg-slate-800 transition-all shadow-lg">Sign in with Google</button>
         </div>
       </div>
     );
@@ -234,7 +278,7 @@ const App: React.FC = () => {
             <div className="bg-indigo-600 p-2 rounded-lg text-white"><ICONS.Dashboard /></div>
             <span className="text-xl font-bold tracking-tight">Harmony</span>
           </div>
-          {isPreview && <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full uppercase tracking-tighter">Preview</span>}
+          {isSyncing && <div className="animate-spin w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full"></div>}
         </div>
         <div className="space-y-1 flex-1">
           {[
@@ -276,10 +320,7 @@ const App: React.FC = () => {
               return next;
             })}
             notes={notes}
-            onAddNote={(text) => {
-              const newNote = { id: Date.now().toString(), text, color: 'bg-yellow-100' };
-              setNotes(prev => [newNote, ...prev]);
-            }}
+            onAddNote={(text) => setNotes(prev => [{ id: Date.now().toString(), text, color: 'bg-yellow-100' }, ...prev])}
             onRemoveNote={(id) => setNotes(prev => prev.filter(n => n.id !== id))}
           />
         )}
@@ -293,7 +334,10 @@ const App: React.FC = () => {
         {currentView === View.ShoppingList && (
           <ShoppingList 
             weeklyPlan={weeklyPlan} 
-            authToken={isPreview ? null : auth.token} 
+            authToken={isPreview ? null : auth.token}
+            // Pass the synced items down to the list
+            manualItems={manualItems}
+            onUpdateItems={setManualItems}
           />
         )}
         {currentView === View.Calendar && (
