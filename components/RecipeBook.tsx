@@ -31,7 +31,7 @@ const RecipeBook: React.FC<RecipeBookProps> = ({ recipes, onRefresh, onAddRecipe
     try {
       const ai = new GoogleGenAI({ apiKey: API_KEY! });
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-lite',
+        model: 'gemini-2.5-flash', // Updated to your available standard Flash model
         contents: `Extract recipe details from this URL: ${importUrl}. 
         
         IMPORTANT: Return ONLY a raw JSON object. Do not include markdown formatting, backticks, or explanations.
@@ -47,21 +47,36 @@ const RecipeBook: React.FC<RecipeBookProps> = ({ recipes, onRefresh, onAddRecipe
         config: {
           // Keep the search tool so it can read the URL
           tools: [{ googleSearch: {} }],
-          // Ensure we don't force strict JSON mode which causes conflicts with tools
         }
       });
       
       // --- ROBUST TEXT EXTRACTION ---
-      // This helper handles different response structures safely
       let rawText = '';
+      
+      // 1. Try standard function call (older SDKs)
       if (typeof response.text === 'function') {
-        rawText = response.text();
-      } else if (response.candidates && response.candidates[0] && response.candidates[0].content && response.candidates[0].content.parts) {
-        // Fallback: Manually dig for the text in the candidates array
-        rawText = response.candidates[0].content.parts.map((p: any) => p.text).join('');
-      } else {
-        console.error("Unexpected API Response:", response);
-        throw new Error("Could not find text in AI response");
+        try { rawText = response.text(); } catch (e) { /* ignore */ }
+      } 
+      
+      // 2. Try property access (newer SDKs) if function failed or didn't exist
+      if (!rawText && typeof response.text === 'string') {
+        rawText = response.text;
+      }
+
+      // 3. Manual Deep Dive (The robust fallback for Tool Responses)
+      if (!rawText && response.candidates && response.candidates[0]) {
+         const candidate = response.candidates[0];
+         // Check if we have content parts
+         if (candidate.content && candidate.content.parts) {
+            // Filter out parts that might be tool calls and grab the text
+            rawText = candidate.content.parts.map((p: any) => p.text || '').join('');
+         }
+      }
+
+      // 4. Final check: Did we get anything?
+      if (!rawText) {
+        console.error("Full AI Response:", response);
+        throw new Error("AI returned no text. It might have used a tool but not summarized the result.");
       }
       // ------------------------------
 
