@@ -1,7 +1,53 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Recipe } from '../types';
+// components/RecipeBook.tsx
+
+import React, { useState, useMemo } from 'react';
+import { Recipe, Ingredient, Instruction } from '../types';
 import { GoogleGenAI } from "@google/genai";
 import { API_KEY } from '../constants';
+
+// --- UTILS FOR SCALING ---
+
+// Simple fraction to decimal parser
+const parseAmount = (amount: string): number => {
+  if (!amount) return 0;
+  const trimmed = amount.trim();
+  if (trimmed.includes('/')) {
+    const [num, den] = trimmed.split('/');
+    return parseFloat(num) / parseFloat(den);
+  }
+  return parseFloat(trimmed);
+};
+
+// Decimal to fraction formatter
+const formatAmount = (val: number): string => {
+  if (val === 0) return '';
+  // Check for common fractions
+  const tolerance = 0.05;
+  if (Math.abs(val - 0.25) < tolerance) return '1/4';
+  if (Math.abs(val - 0.33) < tolerance) return '1/3';
+  if (Math.abs(val - 0.5) < tolerance) return '1/2';
+  if (Math.abs(val - 0.66) < tolerance) return '2/3';
+  if (Math.abs(val - 0.75) < tolerance) return '3/4';
+  
+  // Return whole numbers or 1 decimal place
+  if (Number.isInteger(val)) return val.toString();
+  return val.toFixed(1).replace('.0', '');
+};
+
+const scaleIngredient = (amountStr: string, factor: number): string => {
+  if (!amountStr) return '';
+  // Try to find a number at the start
+  const match = amountStr.match(/^([\d./]+)/);
+  if (!match) return amountStr; // Can't scale "some" or "pinch" easily if strict text
+  
+  const num = parseAmount(match[1]);
+  if (isNaN(num)) return amountStr;
+
+  const scaled = num * factor;
+  return formatAmount(scaled);
+};
+
+// --- COMPONENT ---
 
 interface RecipeBookProps {
   recipes: Recipe[];
@@ -24,14 +70,22 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
 }) => {
   const [search, setSearch] = useState('');
   const [isAdding, setIsAdding] = useState(false);
-  const [isEditing, setIsEditing] = useState(false); // New state for Edit Mode
+  const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isScraping, setIsScraping] = useState(false);
   const [importUrl, setImportUrl] = useState('');
-  const [viewingRecipe, setViewingRecipe] = useState<Recipe | null>(null);
   
-  // Shared state for adding AND editing
-  const [formData, setFormData] = useState({ id: '', name: '', ingredients: '', instructions: '', tags: '', imageUrl: '' });
+  const [viewingRecipe, setViewingRecipe] = useState<Recipe | null>(null);
+  const [scale, setScale] = useState(1); // 1 = 1x, 0.5 = half, 2 = double
+  
+  // Form State
+  const [formId, setFormId] = useState('');
+  const [formName, setFormName] = useState('');
+  const [formImageUrl, setFormImageUrl] = useState('');
+  const [formTags, setFormTags] = useState('');
+  const [formIngredients, setFormIngredients] = useState<Ingredient[]>([]);
+  const [formInstructions, setFormInstructions] = useState<Instruction[]>([]);
+
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
@@ -39,27 +93,40 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
     return recipes.filter(r => r.name.toLowerCase().includes(search.toLowerCase()));
   }, [recipes, search]);
 
-  // Pre-fill form when editing
+  // -- FORM HELPERS --
+  const resetForm = () => {
+    setFormId('');
+    setFormName('');
+    setFormImageUrl('');
+    setFormTags('');
+    setFormIngredients([{ amount: '', unit: '', item: '' }]);
+    setFormInstructions([{ text: '', isHeader: false }]);
+    setSelectedFile(null);
+    setPreviewUrl(null);
+    setScale(1);
+  };
+
   const startEditing = (recipe: Recipe) => {
-    setFormData({
-      id: recipe.id,
-      name: recipe.name,
-      ingredients: recipe.ingredients.join(', '),
-      instructions: (recipe.instructions || []).join('\n'),
-      tags: recipe.tags.join(', '),
-      imageUrl: recipe.imageUrl
-    });
+    setFormId(recipe.id);
+    setFormName(recipe.name);
+    setFormImageUrl(recipe.imageUrl);
+    setFormTags(recipe.tags.join(', '));
+    setFormIngredients(recipe.ingredients.length ? [...recipe.ingredients] : [{ amount: '', unit: '', item: '' }]);
+    setFormInstructions(recipe.instructions.length ? [...recipe.instructions] : [{ text: '', isHeader: false }]);
     setPreviewUrl(recipe.imageUrl);
+    
     setIsEditing(true);
-    setViewingRecipe(null); // Close view modal, open edit modal (re-using isAdding UI)
+    setViewingRecipe(null);
     setIsAdding(true);
   };
 
-  const handleDelete = async (id: string) => {
-    if (await onDeleteRecipe(id)) {
-      setViewingRecipe(null);
-    }
+  const closeModal = () => {
+    setIsAdding(false);
+    setIsEditing(false);
+    resetForm();
   };
+
+  // -- HANDLERS --
 
   const handleScrape = async () => {
     if (!importUrl.trim()) return;
@@ -67,25 +134,26 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
     try {
       const ai = new GoogleGenAI({ apiKey: API_KEY! });
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-lite',
+        model: 'gemini-2.0-flash', // Using faster/cheaper model if available, or fallback
         contents: `You are a recipe scraping assistant.
-        TASK: Use 'googleSearch' to read: ${importUrl}
-        Extract: Name, Ingredients, Instructions, Image URL.
-        Output: ONLY valid JSON.
+        TASK: Extract recipe data from: ${importUrl}
+        Output: valid JSON only.
         Structure:
         {
           "name": "string",
-          "ingredients": "string (comma separated)",
-          "instructions": "string (steps joined by '||')",
+          "ingredients": [ { "amount": "string (number or fraction)", "unit": "string", "item": "string" } ],
+          "instructions": [ { "text": "string", "isHeader": boolean } ],
           "tags": "string (comma separated)",
           "imageUrl": "string"
-        }`,
+        }
+        For instruction headers (like "For the Sauce"), set isHeader: true.
+        For ingredient amounts, use fractions like "1/2" where possible.
+        `,
         config: { tools: [{ googleSearch: {} }] }
       });
       
       let rawText = '';
       if (typeof response.text === 'function') rawText = response.text();
-      else if (typeof response.text === 'string') rawText = response.text;
       else if (response.candidates?.[0]?.content?.parts) rawText = response.candidates[0].content.parts.map((p: any) => p.text || '').join('');
 
       if (!rawText) throw new Error("AI returned no text.");
@@ -94,14 +162,11 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
       const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
       const data = JSON.parse(jsonMatch ? jsonMatch[0] : cleanJson);
 
-      setFormData({
-        id: '',
-        name: data.name || '',
-        ingredients: data.ingredients || '',
-        instructions: data.instructions?.split('||').map((s: string) => s.trim()).join('\n') || '',
-        tags: data.tags || '',
-        imageUrl: data.imageUrl || ''
-      });
+      setFormName(data.name || '');
+      setFormIngredients(data.ingredients || []);
+      setFormInstructions(data.instructions || []);
+      setFormTags(data.tags || '');
+      setFormImageUrl(data.imageUrl || '');
       setPreviewUrl(data.imageUrl || null);
       setImportUrl('');
     } catch (err) {
@@ -112,78 +177,86 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setSelectedFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => setPreviewUrl(reader.result as string);
-      reader.readAsDataURL(file);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.ingredients) return;
+    if (!formName) return;
     
     setIsSubmitting(true);
     
     const recipeData = {
-      name: formData.name,
-      ingredients: formData.ingredients.split(',').map(s => s.trim()),
-      instructions: formData.instructions.split('\n').map(s => s.trim()).filter(s => s),
-      tags: formData.tags.split(',').map(s => s.trim()),
-      imageUrl: formData.imageUrl || `https://picsum.photos/seed/${formData.name}/400/300`
+      name: formName,
+      ingredients: formIngredients.filter(i => i.item.trim() !== ''),
+      instructions: formInstructions.filter(i => i.text.trim() !== ''),
+      tags: formTags.split(',').map(s => s.trim()).filter(s => s),
+      imageUrl: formImageUrl || `https://picsum.photos/seed/${formName}/400/300`
     };
 
     let success = false;
     if (isEditing) {
-      success = await onUpdateRecipe({ ...recipeData, id: formData.id }, selectedFile || undefined);
+      success = await onUpdateRecipe({ ...recipeData, id: formId }, selectedFile || undefined);
     } else {
       success = await onAddRecipe(recipeData, selectedFile || undefined);
     }
 
-    if (success) {
-      closeModal();
-    }
+    if (success) closeModal();
     setIsSubmitting(false);
   };
 
-  const closeModal = () => {
-    setIsAdding(false);
-    setIsEditing(false);
-    setFormData({ id: '', name: '', ingredients: '', instructions: '', tags: '', imageUrl: '' });
-    setSelectedFile(null);
-    setPreviewUrl(null);
+  // -- DYNAMIC FORM INPUTS --
+
+  const updateIngredient = (index: number, field: keyof Ingredient, value: string) => {
+    const newIngs = [...formIngredients];
+    newIngs[index] = { ...newIngs[index], [field]: value };
+    setFormIngredients(newIngs);
   };
 
-  const toggleIngredientShopping = (ingredient: string) => {
-    const clean = ingredient.toLowerCase().trim();
+  const addIngredientLine = () => setFormIngredients([...formIngredients, { amount: '', unit: '', item: '' }]);
+  const removeIngredientLine = (index: number) => setFormIngredients(formIngredients.filter((_, i) => i !== index));
+
+  const updateInstruction = (index: number, field: keyof Instruction, value: any) => {
+    const newInst = [...formInstructions];
+    newInst[index] = { ...newInst[index], [field]: value };
+    setFormInstructions(newInst);
+  };
+
+  const addInstructionLine = () => setFormInstructions([...formInstructions, { text: '', isHeader: false }]);
+  const removeInstructionLine = (index: number) => setFormInstructions(formInstructions.filter((_, i) => i !== index));
+
+  // -- VIEW LOGIC --
+  
+  const toggleIngredientShopping = (ingredientItem: string) => {
+    const clean = ingredientItem.toLowerCase().trim();
     if (hiddenIngredients.includes(clean)) {
-      // It was hidden (unchecked), now we remove it from hidden (check it)
       onUpdateHidden(hiddenIngredients.filter(i => i !== clean));
     } else {
-      // It was visible (checked), now we hide it (uncheck it)
       onUpdateHidden([...hiddenIngredients, clean]);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (await onDeleteRecipe(id)) {
+      setViewingRecipe(null);
     }
   };
 
   return (
     <div className="space-y-8">
+      {/* HEADER */}
       <div className="flex flex-col lg:flex-row gap-6 justify-between items-start lg:items-center">
         <div className="relative w-full max-w-lg">
-          <input type="text" placeholder="Search your favorites..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full pl-12 pr-6 py-4 bg-white border border-slate-200 rounded-2xl shadow-sm focus:ring-4 focus:ring-indigo-50 outline-none transition-all" />
+          <input type="text" placeholder="Search recipes..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full pl-12 pr-6 py-4 bg-white border border-slate-200 rounded-2xl shadow-sm focus:ring-4 focus:ring-indigo-50 outline-none transition-all" />
           <svg className="absolute left-4 top-4.5 w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
         </div>
         <div className="flex gap-3 w-full lg:w-auto">
-          <button onClick={() => setIsAdding(true)} className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-6 py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg hover:bg-indigo-700 transition-all">+ New Recipe</button>
+          <button onClick={() => { resetForm(); setIsAdding(true); }} className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-6 py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg hover:bg-indigo-700 transition-all">+ New Recipe</button>
           <button onClick={onRefresh} className="flex-1 lg:flex-none px-6 py-4 bg-white border border-slate-200 rounded-2xl font-bold hover:bg-slate-50 transition-all">Sync</button>
         </div>
       </div>
 
+      {/* RECIPE GRID */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
         {filtered.map(recipe => (
-          <div key={recipe.id} onClick={() => setViewingRecipe(recipe)} className="bg-white rounded-[2.5rem] overflow-hidden shadow-sm border border-slate-100 transition-all hover:shadow-xl group cursor-pointer">
+          <div key={recipe.id} onClick={() => { setScale(1); setViewingRecipe(recipe); }} className="bg-white rounded-[2.5rem] overflow-hidden shadow-sm border border-slate-100 transition-all hover:shadow-xl group cursor-pointer">
             <div className="relative h-64">
                <img src={recipe.imageUrl} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt={recipe.name} />
                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
@@ -197,37 +270,29 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
                </div>
             </div>
             <div className="p-6">
-               <p className="text-sm text-slate-500 font-medium line-clamp-3 leading-relaxed">{recipe.ingredients.join(' • ')}</p>
-               <div className="mt-4 pt-4 border-t border-slate-50 flex justify-between items-center">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">View Recipe</span>
-                  <div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
-                  </div>
-               </div>
+               <p className="text-sm text-slate-500 font-medium line-clamp-3 leading-relaxed">
+                  {recipe.ingredients.map(i => i.item).join(' • ')}
+               </p>
             </div>
           </div>
         ))}
       </div>
 
+      {/* VIEW MODAL */}
       {viewingRecipe && (
         <div className="fixed inset-0 z-[100] bg-white md:bg-black/60 md:backdrop-blur-md flex items-center justify-center md:p-10">
           <div className="bg-white w-full h-full md:max-w-6xl md:h-[90vh] md:rounded-[3rem] shadow-2xl overflow-hidden flex flex-col relative">
             
-            {/* --- ACTION BUTTONS (Edit/Delete) --- */}
+            {/* Action Bar */}
             <div className="absolute top-6 right-6 z-20 flex gap-3">
-               <button onClick={() => startEditing(viewingRecipe)} className="px-4 py-2 bg-white/90 backdrop-blur text-indigo-600 font-bold rounded-full shadow-sm hover:bg-indigo-50 transition-all flex items-center gap-2">
-                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                 Edit
-               </button>
-               <button onClick={() => handleDelete(viewingRecipe.id)} className="px-4 py-2 bg-white/90 backdrop-blur text-red-500 font-bold rounded-full shadow-sm hover:bg-red-50 transition-all flex items-center gap-2">
-                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                 Delete
-               </button>
+               <button onClick={() => startEditing(viewingRecipe)} className="px-4 py-2 bg-white/90 backdrop-blur text-indigo-600 font-bold rounded-full shadow-sm hover:bg-indigo-50 transition-all">Edit</button>
+               <button onClick={() => handleDelete(viewingRecipe.id)} className="px-4 py-2 bg-white/90 backdrop-blur text-red-500 font-bold rounded-full shadow-sm hover:bg-red-50 transition-all">Delete</button>
                <button onClick={() => setViewingRecipe(null)} className="w-10 h-10 bg-slate-100 text-slate-500 rounded-full flex items-center justify-center hover:bg-slate-200 transition-all">✕</button>
             </div>
             
             <div className="flex-1 overflow-y-auto">
               <div className="grid grid-cols-1 lg:grid-cols-2 h-full">
+                {/* Left: Image */}
                 <div className="relative h-80 lg:h-full bg-slate-100">
                   <img src={viewingRecipe.imageUrl} className="w-full h-full object-cover" alt={viewingRecipe.name} />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent lg:hidden"></div>
@@ -236,6 +301,7 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
                   </div>
                 </div>
 
+                {/* Right: Content */}
                 <div className="p-8 lg:p-16 space-y-12">
                   <div className="hidden lg:block">
                     <div className="flex gap-2 mb-4">
@@ -245,43 +311,64 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+                    {/* Ingredients Column */}
                     <div>
-                      <h3 className="text-sm font-black uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2">
-                        <svg className="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
-                        Shopping List
-                      </h3>
+                      <div className="flex justify-between items-center mb-6">
+                        <h3 className="text-sm font-black uppercase tracking-widest text-slate-400">Ingredients</h3>
+                        {/* Scaling Buttons */}
+                        <div className="flex bg-slate-100 rounded-lg p-1">
+                          {[0.5, 1, 2].map(s => (
+                             <button 
+                                key={s} 
+                                onClick={() => setScale(s)} 
+                                className={`px-2 py-0.5 text-[10px] font-bold rounded ${scale === s ? 'bg-white shadow text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+                             >
+                               {s === 0.5 ? '1/2' : s}x
+                             </button>
+                          ))}
+                        </div>
+                      </div>
+
                       <ul className="space-y-4">
                         {viewingRecipe.ingredients.map((ing, idx) => {
-                          const cleanName = ing.toLowerCase().trim();
+                          const cleanName = ing.item.toLowerCase().trim();
                           const isNeeded = !hiddenIngredients.includes(cleanName);
+                          const displayAmount = scaleIngredient(ing.amount, scale);
+
                           return (
-                            <li key={idx} className="flex items-start gap-3 cursor-pointer group" onClick={() => toggleIngredientShopping(ing)}>
-                              <div className={`mt-0.5 w-6 h-6 rounded-lg border-2 flex-shrink-0 flex items-center justify-center transition-all ${isNeeded ? 'bg-green-500 border-green-500' : 'border-slate-200 bg-slate-50'}`}>
-                                {isNeeded && <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>}
+                            <li key={idx} className="flex items-start gap-3 cursor-pointer group" onClick={() => toggleIngredientShopping(ing.item)}>
+                              <div className={`mt-0.5 w-5 h-5 rounded-md border-2 flex-shrink-0 flex items-center justify-center transition-all ${isNeeded ? 'bg-green-500 border-green-500' : 'border-slate-200 bg-slate-50'}`}>
+                                {isNeeded && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>}
                               </div>
-                              <span className={`text-lg font-medium transition-all ${!isNeeded ? 'text-slate-300' : 'text-slate-700'}`}>
-                                {ing}
-                              </span>
+                              <div className={`flex-1 grid grid-cols-[auto_1fr] gap-2 ${!isNeeded ? 'opacity-50' : ''}`}>
+                                <div className="text-right font-bold text-indigo-600 min-w-[3rem] whitespace-nowrap">
+                                  {displayAmount} <span className="text-indigo-400 font-medium text-xs">{ing.unit}</span>
+                                </div>
+                                <span className={`font-medium ${!isNeeded ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
+                                  {ing.item}
+                                </span>
+                              </div>
                             </li>
                           );
                         })}
                       </ul>
-                      <p className="text-xs text-slate-400 mt-4 italic">* Uncheck items you already have. Checked items will appear in your Shopping List if this meal is planned.</p>
                     </div>
 
+                    {/* Instructions Column */}
                     <div className="md:border-l md:border-slate-100 md:pl-12">
-                      <h3 className="text-sm font-black uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2">
-                        <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
-                        Instructions
-                      </h3>
-                      <ol className="space-y-8">
+                      <h3 className="text-sm font-black uppercase tracking-widest text-slate-400 mb-6">Instructions</h3>
+                      <div className="space-y-6">
                         {viewingRecipe.instructions?.map((step, idx) => (
-                          <li key={idx} className="flex gap-4">
-                            <span className="text-2xl font-black text-indigo-100 leading-none">{idx + 1}</span>
-                            <p className="text-lg text-slate-700 leading-relaxed font-medium">{step}</p>
-                          </li>
+                          step.isHeader ? (
+                            <h4 key={idx} className="text-lg font-bold text-slate-900 mt-8 mb-2 pb-2 border-b border-slate-100">{step.text}</h4>
+                          ) : (
+                            <div key={idx} className="flex gap-4">
+                              <div className="w-1 bg-indigo-100 rounded-full self-stretch"></div>
+                              <p className="text-slate-700 leading-relaxed">{step.text}</p>
+                            </div>
+                          )
                         ))}
-                      </ol>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -291,66 +378,90 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
         </div>
       )}
 
+      {/* EDIT/ADD MODAL */}
       {isAdding && (
         <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl p-8 my-8 relative">
-            <button onClick={closeModal} className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-900 transition-colors">✕</button>
+          <div className="bg-white w-full max-w-3xl rounded-[2.5rem] shadow-2xl p-8 my-8 relative">
+            <button onClick={closeModal} className="absolute top-8 right-8 p-2 text-slate-400 hover:text-slate-900 transition-colors">✕</button>
             <h3 className="text-3xl font-black text-slate-900 mb-2">{isEditing ? 'Edit Recipe' : 'New Recipe'}</h3>
-            <p className="text-slate-500 mb-8 font-medium">
-              {isEditing ? 'Make changes to your recipe.' : 'Import from the web or enter manually.'}
-            </p>
             
             {!isEditing && (
-              <div className="mb-8 p-6 bg-indigo-50 rounded-3xl space-y-4">
-                <label className="block text-[10px] font-black uppercase text-indigo-400 tracking-widest mb-1">Import from URL</label>
-                <div className="flex gap-2">
-                  <input type="text" placeholder="https://www.bbcgoodfood.com/..." className="flex-1 bg-white border-none rounded-2xl px-5 py-3 text-sm focus:ring-2 focus:ring-indigo-200 outline-none" value={importUrl} onChange={e => setImportUrl(e.target.value)} />
-                  <button onClick={handleScrape} disabled={isScraping || !importUrl} className="px-6 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 disabled:opacity-50 transition-all flex items-center gap-2">
-                    {isScraping ? <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> : 'AI Import'}
-                  </button>
-                </div>
+              <div className="mb-8 p-4 bg-indigo-50 rounded-3xl flex gap-2">
+                <input type="text" placeholder="Paste URL to import..." className="flex-1 bg-white border-none rounded-2xl px-4 py-2 text-sm outline-none" value={importUrl} onChange={e => setImportUrl(e.target.value)} />
+                <button onClick={handleScrape} disabled={isScraping || !importUrl} className="px-4 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 disabled:opacity-50 text-xs">
+                  {isScraping ? 'Thinking...' : 'AI Import'}
+                </button>
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} className="space-y-8">
+              {/* Basic Info */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-4">
-                  <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Recipe Name</label>
-                    <input required type="text" placeholder="e.g. Nana's Cookies" className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 font-medium text-slate-800 focus:ring-4 focus:ring-indigo-50 outline-none" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Recipe Photo</label>
-                    {previewUrl ? (
-                      <div className="relative h-40 w-full rounded-3xl overflow-hidden border-2 border-indigo-100">
-                        <img src={previewUrl} className="w-full h-full object-cover" alt="Preview" />
-                        <button type="button" onClick={() => { setSelectedFile(null); setPreviewUrl(null); }} className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full shadow-lg">✕</button>
-                      </div>
-                    ) : (
-                      <label className="flex flex-col items-center justify-center h-40 w-full border-2 border-dashed border-slate-200 rounded-3xl cursor-pointer hover:bg-slate-50 transition-all group">
-                        <svg className="w-10 h-10 text-slate-300 group-hover:text-indigo-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                        <p className="text-[10px] font-black uppercase text-slate-400">Upload Photo</p>
-                        <input type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
-                      </label>
-                    )}
-                  </div>
+                  <label className="block text-xs font-black uppercase text-slate-400">Name</label>
+                  <input required type="text" className="w-full bg-slate-50 rounded-xl px-4 py-2 outline-none" value={formName} onChange={e => setFormName(e.target.value)} />
+                  
+                  <label className="block text-xs font-black uppercase text-slate-400">Photo</label>
+                  <input type="file" className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" accept="image/*" onChange={(e) => {
+                     const file = e.target.files?.[0];
+                     if (file) { setSelectedFile(file); const r = new FileReader(); r.onload = () => setPreviewUrl(r.result as string); r.readAsDataURL(file); }
+                  }} />
+                  {previewUrl && <img src={previewUrl} className="h-20 w-20 rounded-xl object-cover" alt="Preview" />}
                 </div>
+                <div>
+                   <label className="block text-xs font-black uppercase text-slate-400 mb-2">Tags</label>
+                   <input type="text" placeholder="Dinner, Quick..." className="w-full bg-slate-50 rounded-xl px-4 py-2 outline-none" value={formTags} onChange={e => setFormTags(e.target.value)} />
+                </div>
+              </div>
 
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Ingredients</label>
-                    <textarea required placeholder="Separate with commas..." className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 font-medium text-slate-800 h-32 focus:ring-4 focus:ring-indigo-50 outline-none" value={formData.ingredients} onChange={e => setFormData({...formData, ingredients: e.target.value})} />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Instructions</label>
-                    <textarea required placeholder="One step per line..." className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 font-medium text-slate-800 h-32 focus:ring-4 focus:ring-indigo-50 outline-none" value={formData.instructions} onChange={e => setFormData({...formData, instructions: e.target.value})} />
-                  </div>
+              {/* Ingredients Editor */}
+              <div>
+                <div className="flex justify-between items-end mb-2">
+                   <label className="block text-xs font-black uppercase text-slate-400">Ingredients</label>
+                   <span className="text-[10px] text-slate-300">Amount | Unit | Item</span>
+                </div>
+                <div className="space-y-2">
+                  {formIngredients.map((ing, i) => (
+                    <div key={i} className="flex gap-2">
+                      <input type="text" placeholder="1/2" className="w-16 bg-slate-50 rounded-lg px-2 py-1 text-sm text-center outline-none" value={ing.amount} onChange={e => updateIngredient(i, 'amount', e.target.value)} />
+                      <input type="text" placeholder="cup" className="w-16 bg-slate-50 rounded-lg px-2 py-1 text-sm text-center outline-none" value={ing.unit} onChange={e => updateIngredient(i, 'unit', e.target.value)} />
+                      <input type="text" placeholder="Flour" className="flex-1 bg-slate-50 rounded-lg px-3 py-1 text-sm outline-none font-medium" value={ing.item} onChange={e => updateIngredient(i, 'item', e.target.value)} />
+                      <button type="button" onClick={() => removeIngredientLine(i)} className="text-slate-300 hover:text-red-500 px-2">✕</button>
+                    </div>
+                  ))}
+                  <button type="button" onClick={addIngredientLine} className="text-xs font-bold text-indigo-500 hover:text-indigo-700">+ Add Ingredient</button>
+                </div>
+              </div>
+
+              {/* Instructions Editor */}
+              <div>
+                <label className="block text-xs font-black uppercase text-slate-400 mb-2">Instructions</label>
+                <div className="space-y-2">
+                  {formInstructions.map((inst, i) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <div className="flex-1">
+                        <input 
+                           type="text" 
+                           placeholder={inst.isHeader ? "Section Header (e.g. For the Sauce)" : "Step description..."}
+                           className={`w-full rounded-lg px-3 py-2 text-sm outline-none ${inst.isHeader ? 'bg-indigo-50 font-bold text-indigo-700' : 'bg-slate-50'}`} 
+                           value={inst.text} 
+                           onChange={e => updateInstruction(i, 'text', e.target.value)} 
+                        />
+                      </div>
+                      <label className="flex items-center gap-1 cursor-pointer" title="Toggle Header">
+                        <input type="checkbox" checked={inst.isHeader} onChange={e => updateInstruction(i, 'isHeader', e.target.checked)} className="accent-indigo-600" />
+                        <span className="text-[10px] font-bold uppercase text-slate-400">Hdr</span>
+                      </label>
+                      <button type="button" onClick={() => removeInstructionLine(i)} className="text-slate-300 hover:text-red-500 px-2">✕</button>
+                    </div>
+                  ))}
+                  <button type="button" onClick={addInstructionLine} className="text-xs font-bold text-indigo-500 hover:text-indigo-700">+ Add Step</button>
                 </div>
               </div>
               
-              <div className="flex gap-4 pt-4">
-                <button type="button" onClick={closeModal} className="flex-1 py-4 font-black text-slate-400 hover:text-slate-600 rounded-2xl transition-all">Cancel</button>
-                <button type="submit" disabled={isSubmitting} className="flex-[2] py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-xl hover:bg-indigo-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+              <div className="flex gap-4 pt-4 border-t border-slate-100">
+                <button type="button" onClick={closeModal} className="flex-1 py-3 font-bold text-slate-400 hover:bg-slate-50 rounded-xl transition-all">Cancel</button>
+                <button type="submit" disabled={isSubmitting} className="flex-[2] py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg hover:bg-indigo-700 disabled:opacity-50 transition-all">
                   {isSubmitting ? 'Saving...' : 'Save Recipe'}
                 </button>
               </div>
