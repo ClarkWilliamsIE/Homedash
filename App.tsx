@@ -21,6 +21,8 @@ export interface ManualItem {
   checked: boolean;
 }
 
+// ... imports
+
 const App: React.FC = () => {
   const [auth, setAuth] = useState<AuthState>({
     token: sessionStorage.getItem('g_access_token'),
@@ -31,8 +33,17 @@ const App: React.FC = () => {
   const [isPreview, setIsPreview] = useState(sessionStorage.getItem('preview_mode') === 'true');
   const [currentView, setCurrentView] = useState<View>(View.Dashboard);
   
-  // Dynamic Spreadsheet ID
-  const [spreadsheetId, setSpreadsheetId] = useState<string | null>(sessionStorage.getItem('g_sheet_id'));
+  // --- FIX STARTS HERE ---
+  // Safely retrieve the ID. If it is "undefined" (string), ignore it.
+  const getStoredId = () => {
+    const stored = sessionStorage.getItem('g_sheet_id');
+    return stored && stored !== 'undefined' ? stored : null;
+  };
+
+  const [spreadsheetId, setSpreadsheetId] = useState<string | null>(getStoredId());
+  // --- FIX ENDS HERE ---
+
+  // ... rest of your state (recipes, weeklyPlan, etc.)
 
   const [recipes, setRecipes] = useState<Recipe[]>(isPreview ? MOCK_RECIPES : []);
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan>(INITIAL_PLAN);
