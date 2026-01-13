@@ -1,6 +1,7 @@
+// components/Dashboard.tsx
 
 import React, { useState } from 'react';
-import { CalendarEvent, Recipe, View, WeeklyPlan, DayOfWeek, FamilyNote } from '../types';
+import { CalendarEvent, Recipe, WeeklyPlan, DayOfWeek, FamilyNote } from '../types';
 import WeatherWidget from './WeatherWidget';
 import SpotifyWidget from './SpotifyWidget';
 import MealDay from './MealDay';
@@ -11,8 +12,11 @@ interface DashboardProps {
   events: CalendarEvent[];
   weeklyPlan: WeeklyPlan;
   recipes: Recipe[];
-  onUpdateMeal: (day: string, recipe: Recipe | null) => void;
-  onDragDrop: (source: string, target: string) => void;
+  // Updated Prop Signatures
+  onAddMeal: (day: string, recipe: Recipe) => void;
+  onRemoveMeal: (day: string, recipeId: string) => void;
+  onMoveMeal: (source: string, target: string, recipeId: string) => void;
+  
   notes: FamilyNote[];
   onAddNote: (text: string) => void;
   onRemoveNote: (id: string) => void;
@@ -22,8 +26,9 @@ const Dashboard: React.FC<DashboardProps> = ({
   events, 
   weeklyPlan, 
   recipes, 
-  onUpdateMeal, 
-  onDragDrop,
+  onAddMeal, 
+  onRemoveMeal,
+  onMoveMeal,
   notes,
   onAddNote,
   onRemoveNote
@@ -41,7 +46,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const handleSelectRecipe = (recipe: Recipe) => {
     if (activeDay) {
-      onUpdateMeal(activeDay, recipe);
+      onAddMeal(activeDay, recipe); // Changed to ADD
       setIsPickerOpen(false);
       setActiveDay(null);
     }
@@ -58,7 +63,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           <div className="flex justify-between items-center mb-8">
             <h3 className="text-xl font-bold text-slate-900">Weekly Meal Planner</h3>
             <div className="text-sm text-slate-400 font-medium bg-slate-50 px-3 py-1 rounded-full">
-               Drag meals to swap days
+               Drag meals to move days
             </div>
           </div>
           
@@ -67,10 +72,10 @@ const Dashboard: React.FC<DashboardProps> = ({
               <MealDay 
                 key={day} 
                 day={day} 
-                meal={weeklyPlan[day]} 
+                meals={weeklyPlan[day] || []} // Default to empty array
                 onAdd={() => openPicker(day)}
-                onRemove={() => onUpdateMeal(day, null)}
-                onDragDrop={onDragDrop}
+                onRemove={(recipeId) => onRemoveMeal(day, recipeId)}
+                onDragDrop={onMoveMeal}
               />
             ))}
           </div>
@@ -109,14 +114,12 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
 
-          {/* Spotify Widget */}
           <SpotifyWidget />
         </div>
       </div>
 
       {/* Right Column (Utilities) */}
       <div className="space-y-8 flex flex-col">
-        {/* Bin Notifier */}
         <BinNotifier />
 
         {/* Fridge Notes */}
