@@ -10,18 +10,28 @@ export interface AuthState {
   isAuthenticated: boolean;
 }
 
+export interface Ingredient {
+  amount: string; // e.g. "1/2" or "1.5"
+  unit: string;   // e.g. "cup" or "g"
+  item: string;   // e.g. "Flour"
+}
+
+export interface Instruction {
+  text: string;
+  isHeader: boolean;
+}
+
 export interface Recipe {
   id: string;
   name: string;
-  ingredients: string[];
-  instructions?: string[];
+  ingredients: Ingredient[];
+  instructions: Instruction[];
   imageUrl: string;
   tags: string[];
 }
 
 export type DayOfWeek = 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday';
 
-// --- CHANGE HERE: Now an array of recipes ---
 export interface WeeklyPlan {
   [key: string]: Recipe[]; 
 }
