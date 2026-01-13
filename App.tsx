@@ -1,7 +1,7 @@
 // App.tsx
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { AuthState, View, Recipe, CalendarEvent, WeeklyPlan, FamilyNote } from './types';
+import { AuthState, View, Recipe, CalendarEvent, WeeklyPlan, FamilyNote, Ingredient, Instruction } from './types';
 import { CLIENT_ID, SCOPES, ICONS, ROOT_FOLDER_ID } from './constants';
 import Dashboard from './components/Dashboard';
 import RecipeBook from './components/RecipeBook';
@@ -9,10 +9,26 @@ import ShoppingList from './components/ShoppingList';
 import CalendarView from './components/CalendarView';
 
 const MOCK_RECIPES: Recipe[] = [
-  { id: 'm1', name: 'Summer Avocado Toast', ingredients: ['Bread', 'Avocado', 'Lemon', 'Chili Flakes', 'Egg'], instructions: ['Toast the bread until golden.', 'Mash avocado with lemon and salt.', 'Spread on toast and top with a poached egg.'], imageUrl: 'https://images.unsplash.com/photo-1525351484163-7529414344d8?w=500&q=80', tags: ['Breakfast', 'Healthy'] },
+  { 
+    id: 'm1', 
+    name: 'Summer Avocado Toast', 
+    ingredients: [
+      { amount: '2', unit: 'slices', item: 'Sourdough Bread' },
+      { amount: '1', unit: '', item: 'Avocado' },
+      { amount: '1', unit: 'pinch', item: 'Chili Flakes' }
+    ], 
+    instructions: [
+      { text: 'Preparation', isHeader: true },
+      { text: 'Toast the bread until golden.', isHeader: false },
+      { text: 'Mash avocado with lemon and salt.', isHeader: false },
+      { text: 'Assembly', isHeader: true },
+      { text: 'Spread on toast and top with a poached egg.', isHeader: false }
+    ], 
+    imageUrl: 'https://images.unsplash.com/photo-1525351484163-7529414344d8?w=500&q=80', 
+    tags: ['Breakfast', 'Healthy'] 
+  },
 ];
 
-// --- CHANGE: Default to empty arrays ---
 const INITIAL_PLAN: WeeklyPlan = {
   Sunday: [], Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: []
 };
@@ -55,7 +71,7 @@ const App: React.FC = () => {
   const isInitialLoad = useRef(true);
   const saveTimeout = useRef<any>(null);
 
-  // --- AUTH & INIT LOGIC (Same as before) ---
+  // --- AUTH & INIT LOGIC ---
   const login = () => {
     const google = (window as any).google;
     const client = google.accounts.oauth2.initTokenClient({
@@ -94,7 +110,6 @@ const App: React.FC = () => {
     } catch (err) { console.error(err); }
   };
 
-  // --- INITIALIZE SYSTEM (Same as before) ---
   const initializeSystem = useCallback(async () => {
     if (!auth.token || isPreview || spreadsheetId) return;
     setInitStatus('Searching for Family Database...');
@@ -156,62 +171,85 @@ const App: React.FC = () => {
     });
   };
 
-  // --- FETCH DATA (With Migration Logic) ---
   const fetchData = useCallback(async () => {
     if (isPreview || !auth.token || !spreadsheetId) return;
     setIsLoading(true);
     try {
       const sheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:F`, { headers: { Authorization: `Bearer ${auth.token}` } });
       const sheetData = await sheetRes.json();
+      
       if (sheetData.values) {
-        setRecipes(sheetData.values.map((row: any, idx: number) => ({
-          id: row[5] || idx.toString(),
-          name: row[0],
-          ingredients: row[1]?.split(',').map((s: string) => s.trim()) || [],
-          imageUrl: row[2] || `https://picsum.photos/seed/${idx}/400/300`,
-          tags: row[3]?.split(',').map((s: string) => s.trim()) || [],
-          instructions: row[4]?.split('||').map((s: string) => s.trim()) || []
-        })));
+        // --- PARSING LOGIC: Handle Legacy Strings vs New JSON Objects ---
+        const parsedRecipes: Recipe[] = sheetData.values.map((row: any, idx: number) => {
+          let ingredients: Ingredient[] = [];
+          const rawIng = row[1];
+          // Try parse JSON
+          try {
+             ingredients = JSON.parse(rawIng);
+             if (!Array.isArray(ingredients)) throw new Error("Not array");
+          } catch {
+             // Fallback: Legacy comma separated string
+             const parts = rawIng?.split(',') || [];
+             ingredients = parts.map((s: string) => ({ amount: '', unit: '', item: s.trim() }));
+          }
+
+          let instructions: Instruction[] = [];
+          const rawInst = row[4];
+          try {
+             instructions = JSON.parse(rawInst);
+             if (!Array.isArray(instructions)) throw new Error("Not array");
+          } catch {
+             // Fallback: Legacy || separated string
+             const parts = rawInst?.split('||') || [];
+             instructions = parts.map((s: string) => ({ text: s.trim(), isHeader: false }));
+          }
+
+          return {
+            id: row[5] || idx.toString(),
+            name: row[0],
+            ingredients,
+            imageUrl: row[2] || `https://picsum.photos/seed/${idx}/400/300`,
+            tags: row[3]?.split(',').map((s: string) => s.trim()) || [],
+            instructions
+          };
+        });
+        setRecipes(parsedRecipes);
       }
+
       const syncRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SyncData!A1?valueRenderOption=UNFORMATTED_VALUE`, { headers: { Authorization: `Bearer ${auth.token}` } });
       const syncData = await syncRes.json();
       if (syncData.values && syncData.values[0] && syncData.values[0][0]) {
         try {
           const appState = JSON.parse(syncData.values[0][0]);
-          
-          // --- MIGRATION: Ensure Weekly Plan is Arrays ---
           if (appState.weeklyPlan) {
+            // Ensure compatibility if legacy single-recipe format
             const cleanPlan = { ...INITIAL_PLAN };
             Object.keys(appState.weeklyPlan).forEach(day => {
                 const val = appState.weeklyPlan[day];
-                if (Array.isArray(val)) {
-                    cleanPlan[day as keyof WeeklyPlan] = val;
-                } else if (val) {
-                    // It was a single recipe object, wrap it
-                    cleanPlan[day as keyof WeeklyPlan] = [val];
-                }
+                if (Array.isArray(val)) cleanPlan[day as keyof WeeklyPlan] = val;
+                else if (val) cleanPlan[day as keyof WeeklyPlan] = [val];
             });
             setWeeklyPlan(cleanPlan);
           }
-          
           if (appState.notes) setNotes(appState.notes);
           if (appState.manualItems) setManualItems(appState.manualItems);
           if (appState.hiddenIngredients) setHiddenIngredients(appState.hiddenIngredients);
           if (appState.checkedIngredients) setCheckedIngredients(appState.checkedIngredients);
         } catch (e) { console.error("Failed to parse SyncData", e); }
       }
-       const now = new Date();
-       now.setHours(0,0,0,0);
-       const calendarRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${now.toISOString()}&maxResults=50&orderBy=startTime&singleEvents=true`, { headers: { Authorization: `Bearer ${auth.token}` } });
-       const calendarData = await calendarRes.json();
-       setCalendarEvents(calendarData.items || []);
+      
+      const now = new Date();
+      now.setHours(0,0,0,0);
+      const calendarRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${now.toISOString()}&maxResults=50&orderBy=startTime&singleEvents=true`, { headers: { Authorization: `Bearer ${auth.token}` } });
+      const calendarData = await calendarRes.json();
+      setCalendarEvents(calendarData.items || []);
+
     } catch (err) { console.error(err); } finally { 
       setIsLoading(false); 
       setTimeout(() => { isInitialLoad.current = false; }, 1000);
     }
   }, [auth.token, spreadsheetId, isPreview]);
 
-  // --- INIT EFFECT ---
   useEffect(() => {
     if (auth.isAuthenticated && !isPreview && !spreadsheetId) {
       initializeSystem();
@@ -220,7 +258,6 @@ const App: React.FC = () => {
     }
   }, [auth.isAuthenticated, spreadsheetId, initializeSystem, fetchData, isPreview]);
 
-  // --- SYNC EFFECT ---
   useEffect(() => {
     if (isPreview || !auth.token || isInitialLoad.current || !spreadsheetId) return;
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
@@ -238,7 +275,6 @@ const App: React.FC = () => {
     return () => clearTimeout(saveTimeout.current);
   }, [weeklyPlan, notes, manualItems, hiddenIngredients, checkedIngredients, auth.token, spreadsheetId, isPreview]);
 
-  // --- HELPER ACTIONS ---
   const uploadToDrive = async (file: File): Promise<string | null> => {
     const freshToken = sessionStorage.getItem('g_access_token');
     if (!freshToken) return null;
@@ -269,10 +305,10 @@ const App: React.FC = () => {
     try {
       const values = newRecipes.map(r => [
         r.name,
-        r.ingredients.join(', '),
+        JSON.stringify(r.ingredients),  // Store structured object
         r.imageUrl,
         r.tags.join(', '),
-        (r.instructions || []).join(' || '),
+        JSON.stringify(r.instructions), // Store structured object
         r.id
       ]);
       await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:F:clear`, {
@@ -335,7 +371,6 @@ const App: React.FC = () => {
     return false;
   };
 
-  // --- DASHBOARD ACTIONS (ADD/REMOVE MEALS) ---
   const handleAddMeal = (day: string, recipe: Recipe) => {
     setWeeklyPlan(prev => ({
       ...prev,
@@ -355,9 +390,7 @@ const App: React.FC = () => {
       const next = { ...prev };
       const recipeToMove = next[sourceDay].find(r => r.id === recipeId);
       if (recipeToMove) {
-        // Remove from source
         next[sourceDay] = next[sourceDay].filter(r => r.id !== recipeId);
-        // Add to target
         next[targetDay] = [...next[targetDay], recipeToMove];
       }
       return next;
