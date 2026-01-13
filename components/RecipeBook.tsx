@@ -33,7 +33,7 @@ const RecipeBook: React.FC<RecipeBookProps> = ({ recipes, onRefresh, onAddRecipe
       console.log("Starting scrape for:", importUrl);
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.0-flash', // Switched to 2.0-flash for better Tool+JSON stability
+        model: 'gemini-2.5-flash-lite',
         contents: `I need to extract recipe details from this URL: ${importUrl}. 
         
         Use Google Search to read the page content if needed.
