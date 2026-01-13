@@ -32,7 +32,9 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
   const syncTimeout = useRef<any>(null);
 
   const selectedRecipes = useMemo(() => {
-    return Object.values(weeklyPlan).filter(r => r !== null) as Recipe[];
+    // OLD: return Object.values(weeklyPlan).filter(r => r !== null) as Recipe[];
+    // NEW: Flatten the arrays of meals
+    return Object.values(weeklyPlan).flat();
   }, [weeklyPlan]);
 
   const aggregatedIngredients = useMemo(() => {
