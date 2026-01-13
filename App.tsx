@@ -429,6 +429,7 @@ const App: React.FC = () => {
           <ShoppingList 
             weeklyPlan={weeklyPlan} 
             authToken={isPreview ? null : auth.token}
+            spreadsheetId={spreadsheetId} // <--- ADD THIS LINE HERE
             manualItems={manualItems}
             onUpdateItems={setManualItems}
             hiddenIngredients={hiddenIngredients}
