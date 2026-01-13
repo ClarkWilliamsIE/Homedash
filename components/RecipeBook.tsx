@@ -134,7 +134,7 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
     try {
       const ai = new GoogleGenAI({ apiKey: API_KEY! });
       const response = await ai.models.generateContent({
-        model: 'gemini-2.0-flash', // Using faster/cheaper model if available, or fallback
+        model: 'gemini-2.5-flash-lite',
         contents: `You are a recipe scraping assistant.
         TASK: Extract recipe data from: ${importUrl}
         Output: valid JSON only.
