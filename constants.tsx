@@ -10,7 +10,7 @@ export const API_KEY = process.env.API_KEY;
 
 // REPLACE THIS with the ID of the folder you created in your Business Drive
 // Ensure this folder is SHARED (Editor Access) with every family member who logs in.
-export const ROOT_FOLDER_ID = '1rECIFibgn0sNY4ig2MfEvK1T0GUPbxdJ?ths=true'; 
+export const ROOT_FOLDER_ID = '1rECIFibgn0sNY4ig2MfEvK1T0GUPbxdJ'; 
 
 // We removed SPREADSHEET_ID because we will find it dynamically now!
 
