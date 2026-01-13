@@ -96,6 +96,7 @@ const App: React.FC = () => {
     
     try {
       // Step A: Search for existing file in the folder
+      // We added "trashed = false" to ensure we don't pick up deleted files
       const q = `name = 'FamilyHarmonyDB' and '${ROOT_FOLDER_ID}' in parents and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false`;
       const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}`, {
         headers: { Authorization: `Bearer ${auth.token}` }
@@ -123,21 +124,35 @@ const App: React.FC = () => {
             parents: [ROOT_FOLDER_ID]
           })
         });
+        
         const createData = await createRes.json();
+        
+        // --- ERROR CHECKING START ---
+        if (!createRes.ok || !createData.id) {
+            console.error("Creation Failed:", createData);
+            alert(`Error creating database: ${createData.error?.message || "Check permissions"}`);
+            setInitStatus('Error: Could not create database.');
+            return; // STOP HERE
+        }
+        // --- ERROR CHECKING END ---
+
         finalSheetId = createData.id;
 
         // Initialize Tabs/Headers
         await initializeSheetHeaders(finalSheetId, auth.token);
       }
 
-      sessionStorage.setItem('g_sheet_id', finalSheetId);
-      setSpreadsheetId(finalSheetId);
+      // Only save if we actually have a valid ID
+      if (finalSheetId) {
+          sessionStorage.setItem('g_sheet_id', finalSheetId);
+          setSpreadsheetId(finalSheetId);
+      }
 
     } catch (err) {
       console.error("Init failed", err);
       alert("Failed to connect to Drive Folder. Check permissions.");
     } finally {
-      setInitStatus('');
+      if (spreadsheetId) setInitStatus(''); // Clear status only if successful
     }
   }, [auth.token, isPreview, spreadsheetId]);
 
