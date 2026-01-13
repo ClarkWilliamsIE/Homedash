@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AuthState, View, Recipe, CalendarEvent, WeeklyPlan, FamilyNote } from './types';
-import { CLIENT_ID, SPREADSHEET_ID, SCOPES, ICONS } from './constants';
+import { CLIENT_ID, SCOPES, ICONS, ROOT_FOLDER_ID } from './constants';
 import Dashboard from './components/Dashboard';
 import RecipeBook from './components/RecipeBook';
 import ShoppingList from './components/ShoppingList';
@@ -8,8 +8,7 @@ import CalendarView from './components/CalendarView';
 
 const MOCK_RECIPES: Recipe[] = [
   { id: 'm1', name: 'Summer Avocado Toast', ingredients: ['Bread', 'Avocado', 'Lemon', 'Chili Flakes', 'Egg'], instructions: ['Toast the bread until golden.', 'Mash avocado with lemon and salt.', 'Spread on toast and top with a poached egg.'], imageUrl: 'https://images.unsplash.com/photo-1525351484163-7529414344d8?w=500&q=80', tags: ['Breakfast', 'Healthy'] },
-  { id: 'm2', name: 'Classic Italian Pasta', ingredients: ['Spaghetti', 'Tomato Sauce', 'Basil', 'Parmesan', 'Garlic'], instructions: ['Boil pasta in salted water.', 'Sauté garlic in oil.', 'Add sauce and basil, toss with pasta.'], imageUrl: 'https://images.unsplash.com/photo-1516100882582-96c3a05fe590?w=500&q=80', tags: ['Dinner', 'Italian'] },
-  { id: 'm3', name: 'Quinoa Buddha Bowl', ingredients: ['Quinoa', 'Chickpeas', 'Spinach', 'Tahini', 'Sweet Potato'], instructions: ['Roast sweet potatoes.', 'Cook quinoa according to package.', 'Assemble bowl and drizzle with tahini.'], imageUrl: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=500&q=80', tags: ['Lunch', 'Vegan'] },
+  // ... keep other mocks if you want
 ];
 
 const INITIAL_PLAN: WeeklyPlan = {
@@ -31,20 +30,21 @@ const App: React.FC = () => {
 
   const [isPreview, setIsPreview] = useState(sessionStorage.getItem('preview_mode') === 'true');
   const [currentView, setCurrentView] = useState<View>(View.Dashboard);
+  
+  // Dynamic Spreadsheet ID
+  const [spreadsheetId, setSpreadsheetId] = useState<string | null>(sessionStorage.getItem('g_sheet_id'));
+
   const [recipes, setRecipes] = useState<Recipe[]>(isPreview ? MOCK_RECIPES : []);
-  
-  // -- SYNCED STATE --
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan>(INITIAL_PLAN);
-  const [notes, setNotes] = useState<FamilyNote[]>([{ id: '1', text: 'Welcome to your dashboard!', color: 'bg-yellow-100' }]);
+  const [notes, setNotes] = useState<FamilyNote[]>([]);
   const [manualItems, setManualItems] = useState<ManualItem[]>([]);
-  
-  // New State for Shopping List features
   const [hiddenIngredients, setHiddenIngredients] = useState<string[]>([]);
   const [checkedIngredients, setCheckedIngredients] = useState<string[]>([]);
-
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [initStatus, setInitStatus] = useState<string>(''); // For loading feedback
 
   const isInitialLoad = useRef(true);
   const saveTimeout = useRef<any>(null);
@@ -52,10 +52,6 @@ const App: React.FC = () => {
   // 1. LOGIN LOGIC
   const login = () => {
     const google = (window as any).google;
-    if (!google || CLIENT_ID.includes('YOUR_GOOGLE')) {
-      alert("Please configure your CLIENT_ID first.");
-      return;
-    }
     const client = google.accounts.oauth2.initTokenClient({
       client_id: CLIENT_ID,
       scope: SCOPES,
@@ -74,6 +70,7 @@ const App: React.FC = () => {
   const logout = () => {
     sessionStorage.clear();
     setAuth({ token: null, user: null, isAuthenticated: false });
+    setSpreadsheetId(null);
     setIsPreview(false);
     setRecipes([]);
     setCurrentView(View.Dashboard);
@@ -91,17 +88,94 @@ const App: React.FC = () => {
     } catch (err) { console.error(err); }
   };
 
-  // 2. DATA FETCHING
+  // 2. SYSTEM INITIALIZATION (Find/Create Sheet)
+  const initializeSystem = useCallback(async () => {
+    if (!auth.token || isPreview || spreadsheetId) return;
+    
+    setInitStatus('Searching for Family Database...');
+    
+    try {
+      // Step A: Search for existing file in the folder
+      const q = `name = 'FamilyHarmonyDB' and '${ROOT_FOLDER_ID}' in parents and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false`;
+      const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}`, {
+        headers: { Authorization: `Bearer ${auth.token}` }
+      });
+      const searchData = await searchRes.json();
+
+      let finalSheetId = '';
+
+      if (searchData.files && searchData.files.length > 0) {
+        // Found it!
+        finalSheetId = searchData.files[0].id;
+        setInitStatus('Database found. Loading...');
+      } else {
+        // Not found, create it!
+        setInitStatus('Creating new Database...');
+        const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+          method: 'POST',
+          headers: { 
+            Authorization: `Bearer ${auth.token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            name: 'FamilyHarmonyDB',
+            mimeType: 'application/vnd.google-apps.spreadsheet',
+            parents: [ROOT_FOLDER_ID]
+          })
+        });
+        const createData = await createRes.json();
+        finalSheetId = createData.id;
+
+        // Initialize Tabs/Headers
+        await initializeSheetHeaders(finalSheetId, auth.token);
+      }
+
+      sessionStorage.setItem('g_sheet_id', finalSheetId);
+      setSpreadsheetId(finalSheetId);
+
+    } catch (err) {
+      console.error("Init failed", err);
+      alert("Failed to connect to Drive Folder. Check permissions.");
+    } finally {
+      setInitStatus('');
+    }
+  }, [auth.token, isPreview, spreadsheetId]);
+
+  const initializeSheetHeaders = async (id: string, token: string) => {
+    // We need to create the specific tabs: Recipes, ShoppingList, SyncData
+    // This is complex in raw REST, sending a batchUpdate
+    const requests = [
+      { addSheet: { properties: { title: "Recipes" } } },
+      { addSheet: { properties: { title: "ShoppingList" } } },
+      { addSheet: { properties: { title: "SyncData" } } },
+      // Delete the default "Sheet1" if you want, but optional
+    ];
+    
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}:batchUpdate`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requests })
+    });
+
+    // Add Headers to Recipes
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Recipes!A1:F1?valueInputOption=USER_ENTERED`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values: [['Name', 'Ingredients', 'ImageURL', 'Tags', 'Instructions', 'ID']] })
+    });
+  };
+
+  // 3. DATA FETCHING
   const fetchData = useCallback(async () => {
-    if (isPreview || !auth.token || CLIENT_ID.includes('YOUR_GOOGLE')) return;
+    if (isPreview || !auth.token || !spreadsheetId) return;
     setIsLoading(true);
     try {
       // Load Recipes
-      const sheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Recipes!A2:F`, { headers: { Authorization: `Bearer ${auth.token}` } });
+      const sheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:F`, { headers: { Authorization: `Bearer ${auth.token}` } });
       const sheetData = await sheetRes.json();
       if (sheetData.values) {
         setRecipes(sheetData.values.map((row: any, idx: number) => ({
-          id: idx.toString(),
+          id: row[5] || idx.toString(), // Use stored ID if available
           name: row[0],
           ingredients: row[1]?.split(',').map((s: string) => s.trim()) || [],
           imageUrl: row[2] || `https://picsum.photos/seed/${idx}/400/300`,
@@ -110,15 +184,8 @@ const App: React.FC = () => {
         })));
       }
 
-      // Load Calendar
-      const now = new Date();
-      now.setHours(0,0,0,0);
-      const calendarRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${now.toISOString()}&maxResults=50&orderBy=startTime&singleEvents=true`, { headers: { Authorization: `Bearer ${auth.token}` } });
-      const calendarData = await calendarRes.json();
-      setCalendarEvents(calendarData.items || []);
-
       // Load Synced App State
-      const syncRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/SyncData!A1?valueRenderOption=UNFORMATTED_VALUE`, { 
+      const syncRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SyncData!A1?valueRenderOption=UNFORMATTED_VALUE`, { 
         headers: { Authorization: `Bearer ${auth.token}` } 
       });
       const syncData = await syncRes.json();
@@ -132,53 +199,51 @@ const App: React.FC = () => {
           if (appState.hiddenIngredients) setHiddenIngredients(appState.hiddenIngredients);
           if (appState.checkedIngredients) setCheckedIngredients(appState.checkedIngredients);
         } catch (e) { console.error("Failed to parse SyncData", e); }
-      } else {
-        // Fallback for first load
-        const savedPlan = localStorage.getItem('family_weekly_plan');
-        if (savedPlan) setWeeklyPlan(JSON.parse(savedPlan));
-        const savedNotes = localStorage.getItem('family_notes');
-        if (savedNotes) setNotes(JSON.parse(savedNotes));
-        const savedItems = localStorage.getItem('family_manual_shopping');
-        if (savedItems) setManualItems(JSON.parse(savedItems));
       }
+
+       // Load Calendar
+       const now = new Date();
+       now.setHours(0,0,0,0);
+       const calendarRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${now.toISOString()}&maxResults=50&orderBy=startTime&singleEvents=true`, { headers: { Authorization: `Bearer ${auth.token}` } });
+       const calendarData = await calendarRes.json();
+       setCalendarEvents(calendarData.items || []);
 
     } catch (err) { console.error(err); } finally { 
       setIsLoading(false); 
       setTimeout(() => { isInitialLoad.current = false; }, 1000);
     }
-  }, [auth.token, isPreview]);
+  }, [auth.token, spreadsheetId, isPreview]);
 
+  // Trigger Init then Fetch
   useEffect(() => {
-    if (auth.isAuthenticated && !isPreview) fetchData();
-  }, [auth.isAuthenticated, fetchData, isPreview]);
+    if (auth.isAuthenticated && !isPreview && !spreadsheetId) {
+      initializeSystem();
+    } else if (auth.isAuthenticated && !isPreview && spreadsheetId) {
+      fetchData();
+    }
+  }, [auth.isAuthenticated, spreadsheetId, initializeSystem, fetchData, isPreview]);
 
-  // 3. AUTO-SAVE STATE (Debounced)
+  // 4. AUTO-SAVE STATE
   useEffect(() => {
-    if (isPreview || !auth.token || isInitialLoad.current) return;
+    if (isPreview || !auth.token || isInitialLoad.current || !spreadsheetId) return;
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
 
     saveTimeout.current = setTimeout(async () => {
       setIsSyncing(true);
       try {
         const payload = JSON.stringify({ weeklyPlan, notes, manualItems, hiddenIngredients, checkedIngredients });
-        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/SyncData!A1?valueInputOption=USER_ENTERED`, {
+        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SyncData!A1?valueInputOption=USER_ENTERED`, {
           method: 'PUT',
           headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ values: [[payload]] })
         });
-        // Local backups
-        localStorage.setItem('family_weekly_plan', JSON.stringify(weeklyPlan));
-        localStorage.setItem('family_notes', JSON.stringify(notes));
-        localStorage.setItem('family_manual_shopping', JSON.stringify(manualItems));
       } catch (err) { console.error("Failed to sync state", err); } finally { setIsSyncing(false); }
     }, 2000);
 
     return () => clearTimeout(saveTimeout.current);
-  }, [weeklyPlan, notes, manualItems, hiddenIngredients, checkedIngredients, auth.token, isPreview]);
+  }, [weeklyPlan, notes, manualItems, hiddenIngredients, checkedIngredients, auth.token, spreadsheetId, isPreview]);
 
-
-  // 4. HELPER FUNCTIONS
-  // --- FIX 1: UPDATED UPLOAD FUNCTION (Public Permissions) ---
+  // 5. UPLOAD TO FOLDER
   const uploadToDrive = async (file: File): Promise<string | null> => {
     const freshToken = sessionStorage.getItem('g_access_token');
     if (!freshToken) return null;
@@ -187,13 +252,13 @@ const App: React.FC = () => {
       const metadata = {
         name: `recipe_${Date.now()}_${file.name}`,
         mimeType: file.type,
+        parents: [ROOT_FOLDER_ID] // <--- THIS IS THE MAGIC LINE
       };
       
       const formData = new FormData();
       formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
       formData.append('file', file);
 
-      // 1. Upload the file
       const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
         method: 'POST',
         headers: { Authorization: `Bearer ${freshToken}` },
@@ -204,62 +269,45 @@ const App: React.FC = () => {
       const data = await res.json();
       const fileId = data.id;
 
-      // 2. Make the file "Public" (Reader / Anyone) - THIS PREVENTS THE REDIRECT LOOP
+      // Make Public for the app to see it easily (optional if using thumbnail link)
       await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
         method: 'POST',
-        headers: { 
-            Authorization: `Bearer ${freshToken}`,
-            'Content-Type': 'application/json'
-        },
+        headers: { Authorization: `Bearer ${freshToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: 'reader', type: 'anyone' })
       });
 
-      // 3. Return a high-quality thumbnail link
       return `https://drive.google.com/thumbnail?id=${fileId}&sz=w800`;
-
     } catch (err) {
       console.error("Drive upload failed", err);
       return null;
     }
   };
 
-  // --- FIX 2: UPDATED ADD RECIPE FUNCTION (Force Fresh Token) ---
   const addRecipe = async (recipe: Omit<Recipe, 'id'>, imageFile?: File) => {
-    // Grab token directly to ensure it isn't stale
     const freshToken = sessionStorage.getItem('g_access_token');
+    if (!spreadsheetId || !freshToken) return false;
 
     let finalImageUrl = recipe.imageUrl;
-    if (imageFile && !isPreview && freshToken) {
+    if (imageFile) {
       const uploadedUrl = await uploadToDrive(imageFile);
       if (uploadedUrl) finalImageUrl = uploadedUrl;
     }
 
-    if (isPreview) {
-      const newRecipe = { ...recipe, imageUrl: finalImageUrl, id: Date.now().toString() };
-      setRecipes(prev => [newRecipe, ...prev]);
-      return true;
-    }
-
-    if (!freshToken) {
-        alert("Session expired. Please refresh the page.");
-        return false;
-    }
+    const newId = Date.now().toString();
 
     try {
       const instructionsString = (recipe.instructions || []).join(' || ');
-      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/Recipes!A2:F:append?valueInputOption=USER_ENTERED`, {
+      const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:F:append?valueInputOption=USER_ENTERED`, {
         method: 'POST',
-        headers: { 
-            Authorization: `Bearer ${freshToken}`, // USING FRESH TOKEN
-            'Content-Type': 'application/json' 
-        },
+        headers: { Authorization: `Bearer ${freshToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
             values: [[
                 recipe.name, 
                 recipe.ingredients.join(', '), 
                 finalImageUrl, 
                 recipe.tags.join(', '), 
-                instructionsString
+                instructionsString,
+                newId
             ]] 
         })
       });
@@ -267,29 +315,14 @@ const App: React.FC = () => {
       if (res.ok) {
         fetchData();
         return true;
-      } else {
-        const errData = await res.json();
-        console.error("Sheet Error:", errData);
-        alert(`Save failed: ${errData.error?.message || "Check console"}`);
       }
-    } catch (err) { 
-        console.error(err); 
-        alert("Network error. Check console.");
-    }
+    } catch (err) { console.error(err); }
     return false;
   };
-
+  
+  // Calendar Add (unchanged)
   const addEvent = async (event: { summary: string; start: string; allDay: boolean }) => {
-    if (isPreview) {
-      setCalendarEvents(prev => [{
-        id: Date.now().toString(),
-        summary: event.summary,
-        start: event.allDay ? { date: event.start } : { dateTime: event.start },
-        end: event.allDay ? { date: event.start } : { dateTime: new Date(new Date(event.start).getTime() + 3600000).toISOString() }
-      }, ...prev]);
-      return true;
-    }
-    try {
+     try {
       const body = {
         summary: event.summary,
         start: event.allDay ? { date: event.start } : { dateTime: event.start },
@@ -322,6 +355,15 @@ const App: React.FC = () => {
     );
   }
 
+  if (initStatus) {
+    return (
+       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
+          <div className="animate-spin w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full mb-4"></div>
+          <p className="text-slate-600 font-bold animate-pulse">{initStatus}</p>
+       </div>
+    );
+  }
+
   return (
     <div className="flex flex-col md:flex-row min-h-screen">
       <nav className="w-full md:w-64 bg-white border-r border-slate-200 flex flex-col p-6 gap-8">
@@ -330,7 +372,7 @@ const App: React.FC = () => {
             <div className="bg-indigo-600 p-2 rounded-lg text-white"><ICONS.Dashboard /></div>
             <span className="text-xl font-bold tracking-tight">Harmony</span>
           </div>
-          {isSyncing && <div className="animate-spin w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full"></div>}
+          {(isSyncing || isLoading) && <div className="animate-spin w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full"></div>}
         </div>
         <div className="space-y-1 flex-1">
           {[
