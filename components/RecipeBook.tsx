@@ -7,7 +7,6 @@ import { API_KEY } from '../constants';
 
 // --- UTILS FOR SCALING ---
 
-// Simple fraction to decimal parser
 const parseAmount = (amount: string): number => {
   if (!amount) return 0;
   const trimmed = amount.trim();
@@ -18,10 +17,8 @@ const parseAmount = (amount: string): number => {
   return parseFloat(trimmed);
 };
 
-// Decimal to fraction formatter
 const formatAmount = (val: number): string => {
   if (val === 0) return '';
-  // Check for common fractions
   const tolerance = 0.05;
   if (Math.abs(val - 0.25) < tolerance) return '1/4';
   if (Math.abs(val - 0.33) < tolerance) return '1/3';
@@ -29,16 +26,14 @@ const formatAmount = (val: number): string => {
   if (Math.abs(val - 0.66) < tolerance) return '2/3';
   if (Math.abs(val - 0.75) < tolerance) return '3/4';
   
-  // Return whole numbers or 1 decimal place
   if (Number.isInteger(val)) return val.toString();
   return val.toFixed(1).replace('.0', '');
 };
 
 const scaleIngredient = (amountStr: string, factor: number): string => {
   if (!amountStr) return '';
-  // Try to find a number at the start
   const match = amountStr.match(/^([\d./]+)/);
-  if (!match) return amountStr; // Can't scale "some" or "pinch" easily if strict text
+  if (!match) return amountStr; 
   
   const num = parseAmount(match[1]);
   if (isNaN(num)) return amountStr;
@@ -76,7 +71,7 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
   const [importUrl, setImportUrl] = useState('');
   
   const [viewingRecipe, setViewingRecipe] = useState<Recipe | null>(null);
-  const [scale, setScale] = useState(1); // 1 = 1x, 0.5 = half, 2 = double
+  const [scale, setScale] = useState(1); 
   
   // Form State
   const [formId, setFormId] = useState('');
@@ -127,14 +122,13 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
   };
 
   // -- HANDLERS --
-
   const handleScrape = async () => {
     if (!importUrl.trim()) return;
     setIsScraping(true);
     try {
       const ai = new GoogleGenAI({ apiKey: API_KEY! });
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-lite',
+        model: 'gemini-2.0-flash',
         contents: `You are a recipe scraping assistant.
         TASK: Extract recipe data from: ${importUrl}
         Output: valid JSON only.
@@ -180,9 +174,7 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName) return;
-    
     setIsSubmitting(true);
-    
     const recipeData = {
       name: formName,
       ingredients: formIngredients.filter(i => i.item.trim() !== ''),
@@ -190,53 +182,37 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
       tags: formTags.split(',').map(s => s.trim()).filter(s => s),
       imageUrl: formImageUrl || `https://picsum.photos/seed/${formName}/400/300`
     };
-
     let success = false;
-    if (isEditing) {
-      success = await onUpdateRecipe({ ...recipeData, id: formId }, selectedFile || undefined);
-    } else {
-      success = await onAddRecipe(recipeData, selectedFile || undefined);
-    }
-
+    if (isEditing) success = await onUpdateRecipe({ ...recipeData, id: formId }, selectedFile || undefined);
+    else success = await onAddRecipe(recipeData, selectedFile || undefined);
     if (success) closeModal();
     setIsSubmitting(false);
   };
 
   // -- DYNAMIC FORM INPUTS --
-
   const updateIngredient = (index: number, field: keyof Ingredient, value: string) => {
     const newIngs = [...formIngredients];
     newIngs[index] = { ...newIngs[index], [field]: value };
     setFormIngredients(newIngs);
   };
-
   const addIngredientLine = () => setFormIngredients([...formIngredients, { amount: '', unit: '', item: '' }]);
   const removeIngredientLine = (index: number) => setFormIngredients(formIngredients.filter((_, i) => i !== index));
-
   const updateInstruction = (index: number, field: keyof Instruction, value: any) => {
     const newInst = [...formInstructions];
     newInst[index] = { ...newInst[index], [field]: value };
     setFormInstructions(newInst);
   };
-
   const addInstructionLine = () => setFormInstructions([...formInstructions, { text: '', isHeader: false }]);
   const removeInstructionLine = (index: number) => setFormInstructions(formInstructions.filter((_, i) => i !== index));
 
-  // -- VIEW LOGIC --
-  
   const toggleIngredientShopping = (ingredientItem: string) => {
     const clean = ingredientItem.toLowerCase().trim();
-    if (hiddenIngredients.includes(clean)) {
-      onUpdateHidden(hiddenIngredients.filter(i => i !== clean));
-    } else {
-      onUpdateHidden([...hiddenIngredients, clean]);
-    }
+    if (hiddenIngredients.includes(clean)) onUpdateHidden(hiddenIngredients.filter(i => i !== clean));
+    else onUpdateHidden([...hiddenIngredients, clean]);
   };
 
   const handleDelete = async (id: string) => {
-    if (await onDeleteRecipe(id)) {
-      setViewingRecipe(null);
-    }
+    if (await onDeleteRecipe(id)) setViewingRecipe(null);
   };
 
   return (
@@ -280,8 +256,8 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
 
       {/* VIEW MODAL */}
       {viewingRecipe && (
-        <div className="fixed inset-0 z-[100] bg-white md:bg-black/60 md:backdrop-blur-md flex items-center justify-center md:p-10">
-          <div className="bg-white w-full h-full md:max-w-6xl md:h-[90vh] md:rounded-[3rem] shadow-2xl overflow-hidden flex flex-col relative">
+        <div className="fixed inset-0 z-[100] bg-white md:bg-black/60 md:backdrop-blur-md flex items-center justify-center md:p-6">
+          <div className="bg-white w-full h-full md:max-w-7xl md:h-[90vh] md:rounded-[3rem] shadow-2xl overflow-hidden flex flex-col relative">
             
             {/* Action Bar */}
             <div className="absolute top-6 right-6 z-20 flex gap-3">
@@ -291,18 +267,20 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
             </div>
             
             <div className="flex-1 overflow-y-auto">
-              <div className="grid grid-cols-1 lg:grid-cols-2 h-full">
-                {/* Left: Image */}
-                <div className="relative h-80 lg:h-full bg-slate-100">
+              {/* LAYOUT CHANGE: Fixed Sidebar for Image (320px) + Fluid Content */}
+              <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] h-full">
+                
+                {/* Left: Image Sidebar */}
+                <div className="relative h-64 lg:h-full bg-slate-100">
                   <img src={viewingRecipe.imageUrl} className="w-full h-full object-cover" alt={viewingRecipe.name} />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent lg:hidden"></div>
                   <div className="absolute bottom-8 left-8 right-8 lg:hidden">
-                    <h2 className="text-4xl font-black text-white">{viewingRecipe.name}</h2>
+                    <h2 className="text-3xl font-black text-white">{viewingRecipe.name}</h2>
                   </div>
                 </div>
 
                 {/* Right: Content */}
-                <div className="p-8 lg:p-16 space-y-12">
+                <div className="p-8 lg:p-12 space-y-10">
                   <div className="hidden lg:block">
                     <div className="flex gap-2 mb-4">
                       {viewingRecipe.tags.map(t => <span key={t} className="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full uppercase">{t}</span>)}
@@ -310,8 +288,8 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
                     <h2 className="text-5xl font-black text-slate-900 tracking-tight leading-tight">{viewingRecipe.name}</h2>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-                    {/* Ingredients Column */}
+                  <div className="grid grid-cols-1 xl:grid-cols-[1fr_1.5fr] gap-12">
+                    {/* Ingredients Section */}
                     <div>
                       <div className="flex justify-between items-center mb-6">
                         <h3 className="text-sm font-black uppercase tracking-widest text-slate-400">Ingredients</h3>
@@ -321,7 +299,7 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
                              <button 
                                 key={s} 
                                 onClick={() => setScale(s)} 
-                                className={`px-2 py-0.5 text-[10px] font-bold rounded ${scale === s ? 'bg-white shadow text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+                                className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${scale === s ? 'bg-white shadow text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
                              >
                                {s === 0.5 ? '1/2' : s}x
                              </button>
@@ -329,42 +307,55 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
                         </div>
                       </div>
 
-                      <ul className="space-y-4">
+                      {/* INGREDIENT CARDS GRID */}
+                      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2 gap-3">
                         {viewingRecipe.ingredients.map((ing, idx) => {
                           const cleanName = ing.item.toLowerCase().trim();
                           const isNeeded = !hiddenIngredients.includes(cleanName);
                           const displayAmount = scaleIngredient(ing.amount, scale);
 
                           return (
-                            <li key={idx} className="flex items-start gap-3 cursor-pointer group" onClick={() => toggleIngredientShopping(ing.item)}>
-                              <div className={`mt-0.5 w-5 h-5 rounded-md border-2 flex-shrink-0 flex items-center justify-center transition-all ${isNeeded ? 'bg-green-500 border-green-500' : 'border-slate-200 bg-slate-50'}`}>
-                                {isNeeded && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>}
+                            <div 
+                              key={idx} 
+                              onClick={() => toggleIngredientShopping(ing.item)}
+                              className={`flex flex-col p-3 rounded-xl border-2 transition-all cursor-pointer hover:shadow-md select-none ${
+                                isNeeded 
+                                  ? 'bg-white border-slate-100' 
+                                  : 'bg-slate-50 border-transparent opacity-60 grayscale'
+                              }`}
+                            >
+                              <div className="flex justify-between items-start mb-2">
+                                 {/* Tick */}
+                                 <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${isNeeded ? 'border-green-500 bg-green-500 text-white' : 'border-slate-300'}`}>
+                                    {isNeeded && <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>}
+                                 </div>
+                                 {/* Amount & Unit */}
+                                 <div className="text-right">
+                                   <span className="text-lg font-black text-indigo-600 leading-none block">{displayAmount}</span>
+                                   <span className="text-[10px] font-bold text-indigo-300 uppercase leading-none block">{ing.unit}</span>
+                                 </div>
                               </div>
-                              <div className={`flex-1 grid grid-cols-[auto_1fr] gap-2 ${!isNeeded ? 'opacity-50' : ''}`}>
-                                <div className="text-right font-bold text-indigo-600 min-w-[3rem] whitespace-nowrap">
-                                  {displayAmount} <span className="text-indigo-400 font-medium text-xs">{ing.unit}</span>
-                                </div>
-                                <span className={`font-medium ${!isNeeded ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
-                                  {ing.item}
-                                </span>
-                              </div>
-                            </li>
+                              {/* Item Name Underneath */}
+                              <span className={`text-sm font-bold leading-tight ${!isNeeded ? 'line-through text-slate-400' : 'text-slate-700'}`}>
+                                {ing.item}
+                              </span>
+                            </div>
                           );
                         })}
-                      </ul>
+                      </div>
                     </div>
 
-                    {/* Instructions Column */}
-                    <div className="md:border-l md:border-slate-100 md:pl-12">
-                      <h3 className="text-sm font-black uppercase tracking-widest text-slate-400 mb-6">Instructions</h3>
+                    {/* Instructions Section */}
+                    <div className="xl:border-l xl:border-slate-100 xl:pl-12">
+                      <h3 className="text-sm font-black uppercase tracking-widest text-slate-400 mb-6">Method</h3>
                       <div className="space-y-6">
                         {viewingRecipe.instructions?.map((step, idx) => (
                           step.isHeader ? (
-                            <h4 key={idx} className="text-lg font-bold text-slate-900 mt-8 mb-2 pb-2 border-b border-slate-100">{step.text}</h4>
+                            <h4 key={idx} className="text-xl font-bold text-slate-800 mt-10 mb-2 pb-2 border-b border-slate-100">{step.text}</h4>
                           ) : (
-                            <div key={idx} className="flex gap-4">
-                              <div className="w-1 bg-indigo-100 rounded-full self-stretch"></div>
-                              <p className="text-slate-700 leading-relaxed">{step.text}</p>
+                            <div key={idx} className="flex gap-4 group">
+                              <div className="w-1 bg-indigo-100 rounded-full self-stretch group-hover:bg-indigo-300 transition-colors"></div>
+                              <p className="text-lg text-slate-600 leading-relaxed font-medium">{step.text}</p>
                             </div>
                           )
                         ))}
@@ -399,18 +390,18 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-4">
                   <label className="block text-xs font-black uppercase text-slate-400">Name</label>
-                  <input required type="text" className="w-full bg-slate-50 rounded-xl px-4 py-2 outline-none" value={formName} onChange={e => setFormName(e.target.value)} />
+                  <input required type="text" className="w-full bg-slate-50 rounded-xl px-4 py-2 outline-none border border-transparent focus:border-indigo-200" value={formName} onChange={e => setFormName(e.target.value)} />
                   
                   <label className="block text-xs font-black uppercase text-slate-400">Photo</label>
                   <input type="file" className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" accept="image/*" onChange={(e) => {
                      const file = e.target.files?.[0];
                      if (file) { setSelectedFile(file); const r = new FileReader(); r.onload = () => setPreviewUrl(r.result as string); r.readAsDataURL(file); }
                   }} />
-                  {previewUrl && <img src={previewUrl} className="h-20 w-20 rounded-xl object-cover" alt="Preview" />}
+                  {previewUrl && <img src={previewUrl} className="h-24 w-24 rounded-2xl object-cover shadow-sm" alt="Preview" />}
                 </div>
                 <div>
                    <label className="block text-xs font-black uppercase text-slate-400 mb-2">Tags</label>
-                   <input type="text" placeholder="Dinner, Quick..." className="w-full bg-slate-50 rounded-xl px-4 py-2 outline-none" value={formTags} onChange={e => setFormTags(e.target.value)} />
+                   <input type="text" placeholder="Dinner, Quick..." className="w-full bg-slate-50 rounded-xl px-4 py-2 outline-none border border-transparent focus:border-indigo-200" value={formTags} onChange={e => setFormTags(e.target.value)} />
                 </div>
               </div>
 
@@ -423,13 +414,13 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
                 <div className="space-y-2">
                   {formIngredients.map((ing, i) => (
                     <div key={i} className="flex gap-2">
-                      <input type="text" placeholder="1/2" className="w-16 bg-slate-50 rounded-lg px-2 py-1 text-sm text-center outline-none" value={ing.amount} onChange={e => updateIngredient(i, 'amount', e.target.value)} />
-                      <input type="text" placeholder="cup" className="w-16 bg-slate-50 rounded-lg px-2 py-1 text-sm text-center outline-none" value={ing.unit} onChange={e => updateIngredient(i, 'unit', e.target.value)} />
-                      <input type="text" placeholder="Flour" className="flex-1 bg-slate-50 rounded-lg px-3 py-1 text-sm outline-none font-medium" value={ing.item} onChange={e => updateIngredient(i, 'item', e.target.value)} />
+                      <input type="text" placeholder="1/2" className="w-16 bg-slate-50 rounded-lg px-2 py-2 text-sm text-center outline-none border border-transparent focus:border-indigo-200" value={ing.amount} onChange={e => updateIngredient(i, 'amount', e.target.value)} />
+                      <input type="text" placeholder="cup" className="w-16 bg-slate-50 rounded-lg px-2 py-2 text-sm text-center outline-none border border-transparent focus:border-indigo-200" value={ing.unit} onChange={e => updateIngredient(i, 'unit', e.target.value)} />
+                      <input type="text" placeholder="Flour" className="flex-1 bg-slate-50 rounded-lg px-3 py-2 text-sm outline-none font-medium border border-transparent focus:border-indigo-200" value={ing.item} onChange={e => updateIngredient(i, 'item', e.target.value)} />
                       <button type="button" onClick={() => removeIngredientLine(i)} className="text-slate-300 hover:text-red-500 px-2">✕</button>
                     </div>
                   ))}
-                  <button type="button" onClick={addIngredientLine} className="text-xs font-bold text-indigo-500 hover:text-indigo-700">+ Add Ingredient</button>
+                  <button type="button" onClick={addIngredientLine} className="text-xs font-bold text-indigo-500 hover:text-indigo-700 py-2">+ Add Ingredient</button>
                 </div>
               </div>
 
@@ -443,19 +434,19 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
                         <input 
                            type="text" 
                            placeholder={inst.isHeader ? "Section Header (e.g. For the Sauce)" : "Step description..."}
-                           className={`w-full rounded-lg px-3 py-2 text-sm outline-none ${inst.isHeader ? 'bg-indigo-50 font-bold text-indigo-700' : 'bg-slate-50'}`} 
+                           className={`w-full rounded-lg px-3 py-2 text-sm outline-none border border-transparent focus:border-indigo-200 ${inst.isHeader ? 'bg-indigo-50 font-bold text-indigo-700' : 'bg-slate-50'}`} 
                            value={inst.text} 
                            onChange={e => updateInstruction(i, 'text', e.target.value)} 
                         />
                       </div>
-                      <label className="flex items-center gap-1 cursor-pointer" title="Toggle Header">
-                        <input type="checkbox" checked={inst.isHeader} onChange={e => updateInstruction(i, 'isHeader', e.target.checked)} className="accent-indigo-600" />
-                        <span className="text-[10px] font-bold uppercase text-slate-400">Hdr</span>
+                      <label className="flex items-center gap-1 cursor-pointer bg-slate-50 px-2 py-2 rounded-lg" title="Toggle Header">
+                        <input type="checkbox" checked={inst.isHeader} onChange={e => updateInstruction(i, 'isHeader', e.target.checked)} className="accent-indigo-600 w-4 h-4" />
+                        <span className="text-[10px] font-bold uppercase text-slate-400">Header</span>
                       </label>
                       <button type="button" onClick={() => removeInstructionLine(i)} className="text-slate-300 hover:text-red-500 px-2">✕</button>
                     </div>
                   ))}
-                  <button type="button" onClick={addInstructionLine} className="text-xs font-bold text-indigo-500 hover:text-indigo-700">+ Add Step</button>
+                  <button type="button" onClick={addInstructionLine} className="text-xs font-bold text-indigo-500 hover:text-indigo-700 py-2">+ Add Step</button>
                 </div>
               </div>
               
