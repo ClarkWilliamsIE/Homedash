@@ -33,7 +33,7 @@ const RecipeBook: React.FC<RecipeBookProps> = ({ recipes, onRefresh, onAddRecipe
       
       // We use 1.5-flash because it is very stable with Tools+JSON on the free tier
       const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview', 
+        model: 'gemini-2.5-flash-lite', 
         contents: `You are a recipe scraping assistant.
         
         TASK:
