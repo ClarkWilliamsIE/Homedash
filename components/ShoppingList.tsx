@@ -1,12 +1,13 @@
+// components/ShoppingList.tsx
+
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { WeeklyPlan, Recipe } from '../types';
-// REMOVED: import { SPREADSHEET_ID } from '../constants'; 
 import { ManualItem } from '../App';
 
 interface ShoppingListProps {
   weeklyPlan: WeeklyPlan;
   authToken: string | null;
-  spreadsheetId: string | null; // <--- NEW PROP
+  spreadsheetId: string | null;
   manualItems: ManualItem[];
   onUpdateItems: (items: ManualItem[]) => void;
   hiddenIngredients: string[];
@@ -18,7 +19,7 @@ interface ShoppingListProps {
 const ShoppingList: React.FC<ShoppingListProps> = ({ 
   weeklyPlan, 
   authToken, 
-  spreadsheetId, // <--- Receive it here
+  spreadsheetId,
   manualItems, 
   onUpdateItems,
   hiddenIngredients,
@@ -32,8 +33,6 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
   const syncTimeout = useRef<any>(null);
 
   const selectedRecipes = useMemo(() => {
-    // OLD: return Object.values(weeklyPlan).filter(r => r !== null) as Recipe[];
-    // NEW: Flatten the arrays of meals
     return Object.values(weeklyPlan).flat();
   }, [weeklyPlan]);
 
@@ -41,7 +40,8 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
     const list: Record<string, number> = {};
     selectedRecipes.forEach(recipe => {
       recipe.ingredients.forEach(ing => {
-        const clean = ing.toLowerCase().trim();
+        // Access 'item' because 'ing' is now an object { amount, unit, item }
+        const clean = ing.item.toLowerCase().trim();
         if (!hiddenIngredients.includes(clean)) {
           list[clean] = (list[clean] || 0) + 1;
         }
@@ -52,7 +52,7 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
 
   // -- SHEET SYNC LOGIC --
   useEffect(() => {
-    if (!authToken || !spreadsheetId) return; // Don't run if we don't have an ID yet
+    if (!authToken || !spreadsheetId) return;
 
     if (syncTimeout.current) clearTimeout(syncTimeout.current);
 
