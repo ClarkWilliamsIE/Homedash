@@ -1,3 +1,4 @@
+// types.ts
 
 export interface AuthState {
   token: string | null;
@@ -13,15 +14,16 @@ export interface Recipe {
   id: string;
   name: string;
   ingredients: string[];
-  instructions?: string[]; // Added instructions field
+  instructions?: string[];
   imageUrl: string;
   tags: string[];
 }
 
 export type DayOfWeek = 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday';
 
+// --- CHANGE HERE: Now an array of recipes ---
 export interface WeeklyPlan {
-  [key: string]: Recipe | null;
+  [key: string]: Recipe[]; 
 }
 
 export interface FamilyNote {
