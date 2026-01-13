@@ -1,16 +1,27 @@
+// components/constants.tsx
 
 import React from 'react';
 
 // ==========================================
-// CONFIGURATION - INSERT YOUR KEYS HERE
+// CONFIGURATION
 // ==========================================
 export const CLIENT_ID = '858470161036-92e3qomguk6rp8e6pjdkq2el0l4st7a4.apps.googleusercontent.com';
 export const API_KEY = process.env.API_KEY;
-export const SPREADSHEET_ID = '1LarJLHxEZkITr2iUgQ_vMqW5JHqnJrQ7-HcyNFMwlEU';
-// Added drive.file scope to allow uploading recipe photos
+
+// REPLACE THIS with the ID of the folder you created in your Business Drive
+// Ensure this folder is SHARED (Editor Access) with every family member who logs in.
+export const ROOT_FOLDER_ID = '1rECIFibgn0sNY4ig2MfEvK1T0GUPbxdJ?ths=true'; 
+
+// We removed SPREADSHEET_ID because we will find it dynamically now!
+
+// Added 'https://www.googleapis.com/auth/drive' to allow searching/creating in the folder
+// Note: 'drive.file' might be too restrictive if the app didn't create the folder. 
+// If you encounter issues, use 'https://www.googleapis.com/auth/drive' but be aware of the scary consent screen.
+// Ideally, try 'https://www.googleapis.com/auth/drive.file' first.
 export const SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email';
 
 export const ICONS = {
+  // ... keep existing icons ...
   Dashboard: () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
   ),
