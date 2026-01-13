@@ -128,7 +128,7 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
     try {
       const ai = new GoogleGenAI({ apiKey: API_KEY! });
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-lite',
+        model: 'gemini-2.5-flash-lite', // Reverted to 2.5-flash-lite
         contents: `You are a recipe scraping assistant.
         TASK: Extract recipe data from: ${importUrl}
         Output: valid JSON only.
@@ -168,6 +168,16 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
       alert("AI Import failed. Try manually.");
     } finally {
       setIsScraping(false);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => setPreviewUrl(reader.result as string);
+      reader.readAsDataURL(file);
     }
   };
 
@@ -267,9 +277,7 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
             </div>
             
             <div className="flex-1 overflow-y-auto">
-              {/* LAYOUT CHANGE: Fixed Sidebar for Image (320px) + Fluid Content */}
               <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] h-full">
-                
                 {/* Left: Image Sidebar */}
                 <div className="relative h-64 lg:h-full bg-slate-100">
                   <img src={viewingRecipe.imageUrl} className="w-full h-full object-cover" alt={viewingRecipe.name} />
@@ -293,7 +301,6 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
                     <div>
                       <div className="flex justify-between items-center mb-6">
                         <h3 className="text-sm font-black uppercase tracking-widest text-slate-400">Ingredients</h3>
-                        {/* Scaling Buttons */}
                         <div className="flex bg-slate-100 rounded-lg p-1">
                           {[0.5, 1, 2].map(s => (
                              <button 
@@ -307,7 +314,6 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
                         </div>
                       </div>
 
-                      {/* INGREDIENT CARDS GRID */}
                       <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2 gap-3">
                         {viewingRecipe.ingredients.map((ing, idx) => {
                           const cleanName = ing.item.toLowerCase().trim();
@@ -325,17 +331,14 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
                               }`}
                             >
                               <div className="flex justify-between items-start mb-2">
-                                 {/* Tick */}
                                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${isNeeded ? 'border-green-500 bg-green-500 text-white' : 'border-slate-300'}`}>
                                     {isNeeded && <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>}
                                  </div>
-                                 {/* Amount & Unit */}
                                  <div className="text-right">
                                    <span className="text-lg font-black text-indigo-600 leading-none block">{displayAmount}</span>
                                    <span className="text-[10px] font-bold text-indigo-300 uppercase leading-none block">{ing.unit}</span>
                                  </div>
                               </div>
-                              {/* Item Name Underneath */}
                               <span className={`text-sm font-bold leading-tight ${!isNeeded ? 'line-through text-slate-400' : 'text-slate-700'}`}>
                                 {ing.item}
                               </span>
@@ -369,10 +372,10 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
         </div>
       )}
 
-      {/* EDIT/ADD MODAL */}
+      {/* EDIT/ADD MODAL (Fix: items-start for scrolling) */}
       {isAdding && (
-        <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white w-full max-w-3xl rounded-[2.5rem] shadow-2xl p-8 my-8 relative">
+        <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-md flex items-start justify-center p-4 overflow-y-auto">
+          <div className="bg-white w-full max-w-3xl rounded-[2.5rem] shadow-2xl p-8 my-10 relative">
             <button onClick={closeModal} className="absolute top-8 right-8 p-2 text-slate-400 hover:text-slate-900 transition-colors">✕</button>
             <h3 className="text-3xl font-black text-slate-900 mb-2">{isEditing ? 'Edit Recipe' : 'New Recipe'}</h3>
             
@@ -393,11 +396,19 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
                   <input required type="text" className="w-full bg-slate-50 rounded-xl px-4 py-2 outline-none border border-transparent focus:border-indigo-200" value={formName} onChange={e => setFormName(e.target.value)} />
                   
                   <label className="block text-xs font-black uppercase text-slate-400">Photo</label>
-                  <input type="file" className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" accept="image/*" onChange={(e) => {
-                     const file = e.target.files?.[0];
-                     if (file) { setSelectedFile(file); const r = new FileReader(); r.onload = () => setPreviewUrl(r.result as string); r.readAsDataURL(file); }
-                  }} />
-                  {previewUrl && <img src={previewUrl} className="h-24 w-24 rounded-2xl object-cover shadow-sm" alt="Preview" />}
+                  {/* Restored Large Photo Upload UI */}
+                  {previewUrl ? (
+                    <div className="relative h-40 w-full rounded-3xl overflow-hidden border-2 border-indigo-100">
+                      <img src={previewUrl} className="w-full h-full object-cover" alt="Preview" />
+                      <button type="button" onClick={() => { setSelectedFile(null); setPreviewUrl(null); }} className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full shadow-lg">✕</button>
+                    </div>
+                  ) : (
+                    <label className="flex flex-col items-center justify-center h-40 w-full border-2 border-dashed border-slate-200 rounded-3xl cursor-pointer hover:bg-slate-50 transition-all group">
+                      <svg className="w-10 h-10 text-slate-300 group-hover:text-indigo-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                      <p className="text-[10px] font-black uppercase text-slate-400">Upload Photo</p>
+                      <input type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
+                    </label>
+                  )}
                 </div>
                 <div>
                    <label className="block text-xs font-black uppercase text-slate-400 mb-2">Tags</label>
