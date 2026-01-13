@@ -30,64 +30,81 @@ const RecipeBook: React.FC<RecipeBookProps> = ({ recipes, onRefresh, onAddRecipe
     setIsScraping(true);
     try {
       const ai = new GoogleGenAI({ apiKey: API_KEY! });
+      console.log("Starting scrape for:", importUrl);
+
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash', // Updated to your available standard Flash model
-        contents: `Extract recipe details from this URL: ${importUrl}. 
+        model: 'gemini-2.0-flash', // Switched to 2.0-flash for better Tool+JSON stability
+        contents: `I need to extract recipe details from this URL: ${importUrl}. 
         
-        IMPORTANT: Return ONLY a raw JSON object. Do not include markdown formatting, backticks, or explanations.
+        Use Google Search to read the page content if needed.
+        
+        IMPORTANT: Your output must be ONLY a valid JSON object. Do not include markdown formatting like \`\`\`json.
         
         The JSON must match this structure:
         {
           "name": "string",
-          "ingredients": "string (comma separated)",
-          "instructions": "string (steps JOINED BY '||')",
+          "ingredients": "string (comma separated list)",
+          "instructions": "string (all steps joined by '||')",
           "tags": "string (comma separated)",
-          "imageUrl": "string (main photo URL)"
+          "imageUrl": "string (main photo URL from the page)"
         }`,
         config: {
-          // Keep the search tool so it can read the URL
           tools: [{ googleSearch: {} }],
         }
       });
       
-      // --- ROBUST TEXT EXTRACTION ---
+      console.log("Raw AI Response Object:", response);
+
+      // --- ROBUST TEXT EXTRACTION v3 ---
       let rawText = '';
       
-      // 1. Try standard function call (older SDKs)
+      // 1. Try standard text() method
       if (typeof response.text === 'function') {
-        try { rawText = response.text(); } catch (e) { /* ignore */ }
+        try { rawText = response.text(); } catch (e) { console.warn("response.text() failed", e); }
       } 
       
-      // 2. Try property access (newer SDKs) if function failed or didn't exist
+      // 2. Try text property
       if (!rawText && typeof response.text === 'string') {
         rawText = response.text;
       }
 
-      // 3. Manual Deep Dive (The robust fallback for Tool Responses)
+      // 3. Deep Dive into Parts (handling Tool Calls vs Text)
       if (!rawText && response.candidates && response.candidates[0]) {
          const candidate = response.candidates[0];
-         // Check if we have content parts
+         console.log("Candidate Parts:", candidate.content?.parts);
+
          if (candidate.content && candidate.content.parts) {
-            // Filter out parts that might be tool calls and grab the text
-            rawText = candidate.content.parts.map((p: any) => p.text || '').join('');
+            // Map over parts, handling text and logging others
+            rawText = candidate.content.parts.map((p: any) => {
+              if (p.text) return p.text;
+              if (p.functionCall) console.warn("Model returned a Function Call instead of text:", p.functionCall);
+              if (p.executableCode) console.warn("Model returned Executable Code:", p.executableCode);
+              return '';
+            }).join('');
          }
       }
 
-      // 4. Final check: Did we get anything?
-      if (!rawText) {
-        console.error("Full AI Response:", response);
-        throw new Error("AI returned no text. It might have used a tool but not summarized the result.");
+      // 4. Final check
+      if (!rawText.trim()) {
+        throw new Error("AI returned no text content. Check console for 'Candidate Parts'.");
       }
       // ------------------------------
 
+      console.log("Extracted Text:", rawText);
+
       // Clean the response (remove Markdown code blocks if present)
       const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-      const data = JSON.parse(cleanJson);
+      
+      // Extract just the JSON object if there is extra chatter
+      const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
+      const jsonString = jsonMatch ? jsonMatch[0] : cleanJson;
+
+      const data = JSON.parse(jsonString);
 
       setNewRecipe({
         name: data.name || '',
         ingredients: data.ingredients || '',
-        instructions: data.instructions?.split('||').map((s: string) => s.trim()).join('\n') || '',
+        instructions: data.instructions || '', 
         tags: data.tags || '',
         imageUrl: data.imageUrl || ''
       });
@@ -96,7 +113,7 @@ const RecipeBook: React.FC<RecipeBookProps> = ({ recipes, onRefresh, onAddRecipe
     } catch (err) {
       console.error("Scraping failed", err);
       const msg = err instanceof Error ? err.message : "Unknown error";
-      alert(`AI Import failed: ${msg}. Try entering manually.`);
+      alert(`AI Import failed: ${msg}. Check console for details.`);
     } finally {
       setIsScraping(false);
     }
