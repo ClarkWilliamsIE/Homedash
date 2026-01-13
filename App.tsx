@@ -1,3 +1,5 @@
+// App.tsx
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AuthState, View, Recipe, CalendarEvent, WeeklyPlan, FamilyNote } from './types';
 import { CLIENT_ID, SCOPES, ICONS, ROOT_FOLDER_ID } from './constants';
@@ -10,8 +12,9 @@ const MOCK_RECIPES: Recipe[] = [
   { id: 'm1', name: 'Summer Avocado Toast', ingredients: ['Bread', 'Avocado', 'Lemon', 'Chili Flakes', 'Egg'], instructions: ['Toast the bread until golden.', 'Mash avocado with lemon and salt.', 'Spread on toast and top with a poached egg.'], imageUrl: 'https://images.unsplash.com/photo-1525351484163-7529414344d8?w=500&q=80', tags: ['Breakfast', 'Healthy'] },
 ];
 
+// --- CHANGE: Default to empty arrays ---
 const INITIAL_PLAN: WeeklyPlan = {
-  Sunday: null, Monday: null, Tuesday: null, Wednesday: null, Thursday: null, Friday: null, Saturday: null
+  Sunday: [], Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: []
 };
 
 export interface ManualItem {
@@ -52,7 +55,7 @@ const App: React.FC = () => {
   const isInitialLoad = useRef(true);
   const saveTimeout = useRef<any>(null);
 
-  // --- AUTH & INIT LOGIC (Unchanged) ---
+  // --- AUTH & INIT LOGIC (Same as before) ---
   const login = () => {
     const google = (window as any).google;
     const client = google.accounts.oauth2.initTokenClient({
@@ -91,6 +94,7 @@ const App: React.FC = () => {
     } catch (err) { console.error(err); }
   };
 
+  // --- INITIALIZE SYSTEM (Same as before) ---
   const initializeSystem = useCallback(async () => {
     if (!auth.token || isPreview || spreadsheetId) return;
     setInitStatus('Searching for Family Database...');
@@ -152,6 +156,7 @@ const App: React.FC = () => {
     });
   };
 
+  // --- FETCH DATA (With Migration Logic) ---
   const fetchData = useCallback(async () => {
     if (isPreview || !auth.token || !spreadsheetId) return;
     setIsLoading(true);
@@ -173,7 +178,22 @@ const App: React.FC = () => {
       if (syncData.values && syncData.values[0] && syncData.values[0][0]) {
         try {
           const appState = JSON.parse(syncData.values[0][0]);
-          if (appState.weeklyPlan) setWeeklyPlan(appState.weeklyPlan);
+          
+          // --- MIGRATION: Ensure Weekly Plan is Arrays ---
+          if (appState.weeklyPlan) {
+            const cleanPlan = { ...INITIAL_PLAN };
+            Object.keys(appState.weeklyPlan).forEach(day => {
+                const val = appState.weeklyPlan[day];
+                if (Array.isArray(val)) {
+                    cleanPlan[day as keyof WeeklyPlan] = val;
+                } else if (val) {
+                    // It was a single recipe object, wrap it
+                    cleanPlan[day as keyof WeeklyPlan] = [val];
+                }
+            });
+            setWeeklyPlan(cleanPlan);
+          }
+          
           if (appState.notes) setNotes(appState.notes);
           if (appState.manualItems) setManualItems(appState.manualItems);
           if (appState.hiddenIngredients) setHiddenIngredients(appState.hiddenIngredients);
@@ -191,6 +211,7 @@ const App: React.FC = () => {
     }
   }, [auth.token, spreadsheetId, isPreview]);
 
+  // --- INIT EFFECT ---
   useEffect(() => {
     if (auth.isAuthenticated && !isPreview && !spreadsheetId) {
       initializeSystem();
@@ -199,6 +220,7 @@ const App: React.FC = () => {
     }
   }, [auth.isAuthenticated, spreadsheetId, initializeSystem, fetchData, isPreview]);
 
+  // --- SYNC EFFECT ---
   useEffect(() => {
     if (isPreview || !auth.token || isInitialLoad.current || !spreadsheetId) return;
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
@@ -216,6 +238,7 @@ const App: React.FC = () => {
     return () => clearTimeout(saveTimeout.current);
   }, [weeklyPlan, notes, manualItems, hiddenIngredients, checkedIngredients, auth.token, spreadsheetId, isPreview]);
 
+  // --- HELPER ACTIONS ---
   const uploadToDrive = async (file: File): Promise<string | null> => {
     const freshToken = sessionStorage.getItem('g_access_token');
     if (!freshToken) return null;
@@ -240,13 +263,10 @@ const App: React.FC = () => {
     } catch (err) { console.error(err); return null; }
   };
 
-  // --- CORE RECIPE MANAGEMENT (ADD / UPDATE / DELETE) ---
   const saveAllRecipesToSheet = async (newRecipes: Recipe[]) => {
-    setRecipes(newRecipes); // Optimistic update
+    setRecipes(newRecipes);
     if (!spreadsheetId || !auth.token) return;
-
     try {
-      // 1. Prepare values
       const values = newRecipes.map(r => [
         r.name,
         r.ingredients.join(', '),
@@ -255,23 +275,16 @@ const App: React.FC = () => {
         (r.instructions || []).join(' || '),
         r.id
       ]);
-
-      // 2. Clear Sheet
       await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:F:clear`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${auth.token}` }
       });
-
-      // 3. Write New Data
       await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:F?valueInputOption=USER_ENTERED`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ values })
       });
-    } catch (err) {
-      console.error("Failed to save recipes", err);
-      alert("Error saving recipes to Sheet. Check console.");
-    }
+    } catch (err) { console.error("Failed to save recipes", err); }
   };
 
   const addRecipe = async (recipe: Omit<Recipe, 'id'>, imageFile?: File) => {
@@ -322,6 +335,35 @@ const App: React.FC = () => {
     return false;
   };
 
+  // --- DASHBOARD ACTIONS (ADD/REMOVE MEALS) ---
+  const handleAddMeal = (day: string, recipe: Recipe) => {
+    setWeeklyPlan(prev => ({
+      ...prev,
+      [day]: [...(prev[day] || []), recipe]
+    }));
+  };
+
+  const handleRemoveMeal = (day: string, recipeId: string) => {
+    setWeeklyPlan(prev => ({
+      ...prev,
+      [day]: prev[day].filter(r => r.id !== recipeId)
+    }));
+  };
+
+  const handleMoveMeal = (sourceDay: string, targetDay: string, recipeId: string) => {
+    setWeeklyPlan(prev => {
+      const next = { ...prev };
+      const recipeToMove = next[sourceDay].find(r => r.id === recipeId);
+      if (recipeToMove) {
+        // Remove from source
+        next[sourceDay] = next[sourceDay].filter(r => r.id !== recipeId);
+        // Add to target
+        next[targetDay] = [...next[targetDay], recipeToMove];
+      }
+      return next;
+    });
+  };
+
   if (!auth.isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
@@ -365,8 +407,9 @@ const App: React.FC = () => {
         {currentView === View.Dashboard && (
           <Dashboard 
             events={calendarEvents} weeklyPlan={weeklyPlan} recipes={recipes} notes={notes}
-            onUpdateMeal={(day, recipe) => setWeeklyPlan(prev => ({ ...prev, [day]: recipe }))}
-            onDragDrop={(src, tgt) => setWeeklyPlan(prev => { const next = {...prev}; const tmp = next[src]; next[src] = next[tgt]; next[tgt] = tmp; return next; })}
+            onAddMeal={handleAddMeal}
+            onRemoveMeal={handleRemoveMeal}
+            onMoveMeal={handleMoveMeal}
             onAddNote={(text) => setNotes(prev => [{ id: Date.now().toString(), text, color: 'bg-yellow-100' }, ...prev])}
             onRemoveNote={(id) => setNotes(prev => prev.filter(n => n.id !== id))}
           />
@@ -376,10 +419,10 @@ const App: React.FC = () => {
             recipes={recipes} 
             onRefresh={fetchData} 
             onAddRecipe={addRecipe}
-            onUpdateRecipe={updateRecipe} // Passed down
-            onDeleteRecipe={deleteRecipe} // Passed down
-            hiddenIngredients={hiddenIngredients} // Passed down
-            onUpdateHidden={setHiddenIngredients} // Passed down
+            onUpdateRecipe={updateRecipe}
+            onDeleteRecipe={deleteRecipe}
+            hiddenIngredients={hiddenIngredients}
+            onUpdateHidden={setHiddenIngredients}
           />
         )}
         {currentView === View.ShoppingList && (
