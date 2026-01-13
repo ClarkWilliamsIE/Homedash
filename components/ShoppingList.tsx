@@ -1,11 +1,12 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { WeeklyPlan, Recipe } from '../types';
-import { SPREADSHEET_ID } from '../constants';
+// REMOVED: import { SPREADSHEET_ID } from '../constants'; 
 import { ManualItem } from '../App';
 
 interface ShoppingListProps {
   weeklyPlan: WeeklyPlan;
   authToken: string | null;
+  spreadsheetId: string | null; // <--- NEW PROP
   manualItems: ManualItem[];
   onUpdateItems: (items: ManualItem[]) => void;
   hiddenIngredients: string[];
@@ -17,6 +18,7 @@ interface ShoppingListProps {
 const ShoppingList: React.FC<ShoppingListProps> = ({ 
   weeklyPlan, 
   authToken, 
+  spreadsheetId, // <--- Receive it here
   manualItems, 
   onUpdateItems,
   hiddenIngredients,
@@ -27,7 +29,6 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
   const [manualItem, setManualItem] = useState('');
   const [sheetSyncStatus, setSheetSyncStatus] = useState<'idle' | 'syncing' | 'error'>('idle');
   
-  // Use a ref to debounce sheet updates
   const syncTimeout = useRef<any>(null);
 
   const selectedRecipes = useMemo(() => {
@@ -39,7 +40,6 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
     selectedRecipes.forEach(recipe => {
       recipe.ingredients.forEach(ing => {
         const clean = ing.toLowerCase().trim();
-        // Skip hidden items
         if (!hiddenIngredients.includes(clean)) {
           list[clean] = (list[clean] || 0) + 1;
         }
@@ -48,9 +48,9 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
     return Object.entries(list).sort((a, b) => a[0].localeCompare(b[0]));
   }, [selectedRecipes, hiddenIngredients]);
 
-  // -- SHEET SYNC LOGIC (The "Crazy" Auto-Updater) --
+  // -- SHEET SYNC LOGIC --
   useEffect(() => {
-    if (!authToken) return;
+    if (!authToken || !spreadsheetId) return; // Don't run if we don't have an ID yet
 
     if (syncTimeout.current) clearTimeout(syncTimeout.current);
 
@@ -58,7 +58,6 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
     
     syncTimeout.current = setTimeout(async () => {
       try {
-        // 1. Prepare data
         const values = [
           ['Date', new Date().toLocaleDateString()],
           ['Category', 'Item'],
@@ -66,14 +65,14 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
           ...manualItems.map(item => ['Manual', item.name])
         ];
 
-        // 2. Clear the sheet first (so we don't just append forever)
-        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/ShoppingList!A:C:clear`, {
+        // Clear the sheet
+        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/ShoppingList!A:C:clear`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${authToken}` }
         });
 
-        // 3. Write the fresh list
-        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/ShoppingList!A1?valueInputOption=USER_ENTERED`, {
+        // Write the fresh list
+        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/ShoppingList!A1?valueInputOption=USER_ENTERED`, {
           method: 'PUT',
           headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ values })
@@ -84,10 +83,10 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
         console.error("Sheet sync failed", err);
         setSheetSyncStatus('error');
       }
-    }, 3000); // 3-second debounce to avoid hitting quotas
+    }, 3000);
 
     return () => clearTimeout(syncTimeout.current);
-  }, [aggregatedIngredients, manualItems, authToken]);
+  }, [aggregatedIngredients, manualItems, authToken, spreadsheetId]);
 
 
   // -- INTERACTION HANDLERS --
@@ -111,13 +110,8 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
   };
 
   const clearSelected = () => {
-    // 1. Remove checked manual items completely
     onUpdateItems(manualItems.filter(i => !i.checked));
-
-    // 2. Hide checked recipe items (so they disappear)
     onUpdateHidden([...hiddenIngredients, ...checkedIngredients]);
-    
-    // 3. Reset the checked list
     onUpdateChecked([]);
   };
 
