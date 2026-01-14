@@ -114,7 +114,8 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
 
-          <SpotifyWidget />
+          {/* ... inside the grid ... */}
+          <MediaWidget />
         </div>
       </div>
 
