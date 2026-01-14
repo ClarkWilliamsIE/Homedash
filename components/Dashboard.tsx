@@ -4,7 +4,6 @@ import React, { useState } from 'react';
 import { CalendarEvent, Recipe, WeeklyPlan, DayOfWeek, FamilyNote } from '../types';
 import WeatherWidget from './WeatherWidget';
 import MediaWidget from './MediaWidget';
-import SpotifyWidget from './SpotifyWidget';
 import MealDay from './MealDay';
 import RecipePicker from './RecipePicker';
 import BinNotifier from './BinNotifier';
