@@ -40,17 +40,19 @@ export interface ManualItem {
 }
 
 const App: React.FC = () => {
+  // CHANGED: Use localStorage instead of sessionStorage for persistence
   const [auth, setAuth] = useState<AuthState>({
-    token: sessionStorage.getItem('g_access_token'),
-    user: JSON.parse(sessionStorage.getItem('g_user') || 'null'),
-    isAuthenticated: !!sessionStorage.getItem('g_access_token') || sessionStorage.getItem('preview_mode') === 'true'
+    token: localStorage.getItem('g_access_token'),
+    user: JSON.parse(localStorage.getItem('g_user') || 'null'),
+    isAuthenticated: !!localStorage.getItem('g_access_token') || sessionStorage.getItem('preview_mode') === 'true'
   });
 
   const [isPreview, setIsPreview] = useState(sessionStorage.getItem('preview_mode') === 'true');
   const [currentView, setCurrentView] = useState<View>(View.Dashboard);
   
   const getStoredId = () => {
-    const stored = sessionStorage.getItem('g_sheet_id');
+    // CHANGED: Check localStorage for the sheet ID too
+    const stored = localStorage.getItem('g_sheet_id');
     return stored && stored !== 'undefined' ? stored : null;
   };
 
@@ -79,8 +81,11 @@ const App: React.FC = () => {
       scope: SCOPES,
       callback: (response: any) => {
         if (response.access_token) {
-          sessionStorage.setItem('g_access_token', response.access_token);
-          sessionStorage.setItem('preview_mode', 'false');
+          // CHANGED: Save to localStorage so it survives a refresh/close
+          localStorage.setItem('g_access_token', response.access_token);
+          
+          // Clear preview mode if we log in for real
+          sessionStorage.removeItem('preview_mode');
           setIsPreview(false);
           fetchUserInfo(response.access_token);
         }
@@ -90,7 +95,12 @@ const App: React.FC = () => {
   };
 
   const logout = () => {
+    // CHANGED: Clear localStorage on logout
+    localStorage.removeItem('g_access_token');
+    localStorage.removeItem('g_user');
+    localStorage.removeItem('g_sheet_id');
     sessionStorage.clear();
+    
     setAuth({ token: null, user: null, isAuthenticated: false });
     setSpreadsheetId(null);
     setIsPreview(false);
@@ -103,11 +113,21 @@ const App: React.FC = () => {
       const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
         headers: { Authorization: `Bearer ${token}` }
       });
+      if (!res.ok) throw new Error("Token invalid");
       const user = await res.json();
       const userData = { name: user.name, email: user.email, picture: user.picture };
-      sessionStorage.setItem('g_user', JSON.stringify(userData));
+      
+      // CHANGED: Save user info to localStorage
+      localStorage.setItem('g_user', JSON.stringify(userData));
       setAuth({ token, user: userData, isAuthenticated: true });
-    } catch (err) { console.error(err); }
+    } catch (err) { 
+      console.error(err); 
+      // If the token stored is invalid (expired), force logout or cleanup
+      if (localStorage.getItem('g_access_token')) {
+        // Optional: auto-logout if token is dead on load
+        // logout(); 
+      }
+    }
   };
 
   const initializeSystem = useCallback(async () => {
@@ -142,12 +162,13 @@ const App: React.FC = () => {
         await initializeSheetHeaders(finalSheetId, auth.token);
       }
       if (finalSheetId) {
-          sessionStorage.setItem('g_sheet_id', finalSheetId);
+          // CHANGED: Save Sheet ID to localStorage
+          localStorage.setItem('g_sheet_id', finalSheetId);
           setSpreadsheetId(finalSheetId);
       }
     } catch (err) {
       console.error("Init failed", err);
-      alert("Failed to connect to Drive Folder. Check permissions.");
+      // alert("Failed to connect to Drive Folder. Check permissions.");
     } finally {
       if (spreadsheetId) setInitStatus('');
     }
@@ -176,6 +197,16 @@ const App: React.FC = () => {
     setIsLoading(true);
     try {
       const sheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:F`, { headers: { Authorization: `Bearer ${auth.token}` } });
+      
+      // Handle Token Expiry Gracefully
+      if (sheetRes.status === 401) {
+        console.warn("Token expired. Please login again.");
+        // We could force logout here, or just let the user see the login screen eventually
+        // logout(); 
+        setIsLoading(false);
+        return;
+      }
+
       const sheetData = await sheetRes.json();
       
       if (sheetData.values) {
@@ -276,7 +307,8 @@ const App: React.FC = () => {
   }, [weeklyPlan, notes, manualItems, hiddenIngredients, checkedIngredients, auth.token, spreadsheetId, isPreview]);
 
   const uploadToDrive = async (file: File): Promise<string | null> => {
-    const freshToken = sessionStorage.getItem('g_access_token');
+    // CHANGED: Grab token from localStorage if needed, though auth.token is preferred
+    const freshToken = auth.token || localStorage.getItem('g_access_token');
     if (!freshToken) return null;
     try {
       const metadata = { name: `recipe_${Date.now()}_${file.name}`, mimeType: file.type, parents: [ROOT_FOLDER_ID] };
