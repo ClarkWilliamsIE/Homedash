@@ -1,3 +1,4 @@
+// components/CalendarView.tsx
 
 import React, { useState } from 'react';
 import { CalendarEvent } from '../types';
@@ -10,7 +11,8 @@ interface CalendarViewProps {
 const CalendarView: React.FC<CalendarViewProps> = ({ events, onAddEvent }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isAdding, setIsAdding] = useState(false);
-  const [newEvent, setNewEvent] = useState({ summary: '', date: new Date().toISOString().split('T')[0], time: '12:00', allDay: false });
+  // Default to just the date string, removed 'time' and 'allDay' toggles
+  const [newEvent, setNewEvent] = useState({ summary: '', date: new Date().toISOString().split('T')[0] });
 
   const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const year = currentDate.getFullYear();
@@ -35,8 +37,8 @@ const CalendarView: React.FC<CalendarViewProps> = ({ events, onAddEvent }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const startStr = newEvent.allDay ? newEvent.date : `${newEvent.date}T${newEvent.time}:00Z`;
-    const success = await onAddEvent({ summary: newEvent.summary, start: startStr, allDay: newEvent.allDay });
+    // Simplified: Always sends as allDay: true with just the date string
+    const success = await onAddEvent({ summary: newEvent.summary, start: newEvent.date, allDay: true });
     if (success) {
       setIsAdding(false);
       setNewEvent({ ...newEvent, summary: '' });
@@ -94,24 +96,15 @@ const CalendarView: React.FC<CalendarViewProps> = ({ events, onAddEvent }) => {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-400 mb-1">Event Summary</label>
-                <input required type="text" className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2" value={newEvent.summary} onChange={e => setNewEvent({...newEvent, summary: e.target.value})} />
+                <input required type="text" placeholder="e.g. Doctor Appointment" className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2" value={newEvent.summary} onChange={e => setNewEvent({...newEvent, summary: e.target.value})} />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase text-slate-400 mb-1">Date</label>
-                  <input type="date" className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2" value={newEvent.date} onChange={e => setNewEvent({...newEvent, date: e.target.value})} />
-                </div>
-                {!newEvent.allDay && (
-                  <div>
-                    <label className="block text-xs font-bold uppercase text-slate-400 mb-1">Time</label>
-                    <input type="time" className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2" value={newEvent.time} onChange={e => setNewEvent({...newEvent, time: e.target.value})} />
-                  </div>
-                )}
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-400 mb-1">Date</label>
+                <input type="date" className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2" value={newEvent.date} onChange={e => setNewEvent({...newEvent, date: e.target.value})} />
               </div>
-              <label className="flex items-center gap-2 cursor-pointer pt-2">
-                <input type="checkbox" checked={newEvent.allDay} onChange={e => setNewEvent({...newEvent, allDay: e.target.checked})} className="w-4 h-4 rounded text-indigo-600" />
-                <span className="text-sm font-medium text-slate-600">All Day Event</span>
-              </label>
+              
+              <p className="text-[10px] text-slate-400 italic">All events are added as all-day notifications.</p>
+
               <div className="flex gap-3 pt-4">
                 <button type="button" onClick={() => setIsAdding(false)} className="flex-1 py-3 font-bold text-slate-500 hover:bg-slate-50 rounded-xl">Cancel</button>
                 <button type="submit" className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg">Add Event</button>
