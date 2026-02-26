@@ -40,7 +40,6 @@ export interface ManualItem {
 }
 
 const App: React.FC = () => {
-  // CHANGED: Use localStorage instead of sessionStorage for persistence
   const [auth, setAuth] = useState<AuthState>({
     token: localStorage.getItem('g_access_token'),
     user: JSON.parse(localStorage.getItem('g_user') || 'null'),
@@ -51,13 +50,11 @@ const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<View>(View.Dashboard);
   
   const getStoredId = () => {
-    // CHANGED: Check localStorage for the sheet ID too
     const stored = localStorage.getItem('g_sheet_id');
     return stored && stored !== 'undefined' ? stored : null;
   };
 
   const [spreadsheetId, setSpreadsheetId] = useState<string | null>(getStoredId());
-
   const [recipes, setRecipes] = useState<Recipe[]>(isPreview ? MOCK_RECIPES : []);
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan>(INITIAL_PLAN);
   const [notes, setNotes] = useState<FamilyNote[]>([]);
@@ -73,18 +70,46 @@ const App: React.FC = () => {
   const isInitialLoad = useRef(true);
   const saveTimeout = useRef<any>(null);
 
+  // --- NEW: BACKGROUND TOKEN REFRESH LOGIC ---
+  useEffect(() => {
+    if (!auth.token || isPreview || !auth.user?.email) return;
+
+    // Refresh token every 55 minutes to stay ahead of the 1-hour expiry
+    const refreshInterval = setInterval(() => {
+      console.log("Harmony: Refreshing access token in background...");
+      const google = (window as any).google;
+      if (google) {
+        const client = google.accounts.oauth2.initTokenClient({
+          client_id: CLIENT_ID,
+          scope: SCOPES,
+          hint: auth.user?.email, // Skips account picker if already logged in
+          prompt: 'none',         // Silent refresh
+          callback: (response: any) => {
+            if (response.access_token) {
+              localStorage.setItem('g_access_token', response.access_token);
+              setAuth(prev => ({ ...prev, token: response.access_token }));
+              console.log("Harmony: Token refreshed successfully.");
+            }
+          },
+        });
+        client.requestAccessToken();
+      }
+    }, 55 * 60 * 1000); 
+
+    return () => clearInterval(refreshInterval);
+  }, [auth.token, auth.user?.email, isPreview]);
+
   // --- AUTH & INIT LOGIC ---
   const login = () => {
     const google = (window as any).google;
     const client = google.accounts.oauth2.initTokenClient({
       client_id: CLIENT_ID,
       scope: SCOPES,
+      // If we already have a user email, hint it to skip the picker
+      hint: auth.user?.email || undefined,
       callback: (response: any) => {
         if (response.access_token) {
-          // CHANGED: Save to localStorage so it survives a refresh/close
           localStorage.setItem('g_access_token', response.access_token);
-          
-          // Clear preview mode if we log in for real
           sessionStorage.removeItem('preview_mode');
           setIsPreview(false);
           fetchUserInfo(response.access_token);
@@ -95,7 +120,6 @@ const App: React.FC = () => {
   };
 
   const logout = () => {
-    // CHANGED: Clear localStorage on logout
     localStorage.removeItem('g_access_token');
     localStorage.removeItem('g_user');
     localStorage.removeItem('g_sheet_id');
@@ -117,16 +141,10 @@ const App: React.FC = () => {
       const user = await res.json();
       const userData = { name: user.name, email: user.email, picture: user.picture };
       
-      // CHANGED: Save user info to localStorage
       localStorage.setItem('g_user', JSON.stringify(userData));
       setAuth({ token, user: userData, isAuthenticated: true });
     } catch (err) { 
       console.error(err); 
-      // If the token stored is invalid (expired), force logout or cleanup
-      if (localStorage.getItem('g_access_token')) {
-        // Optional: auto-logout if token is dead on load
-        // logout(); 
-      }
     }
   };
 
@@ -153,8 +171,6 @@ const App: React.FC = () => {
         });
         const createData = await createRes.json();
         if (!createRes.ok || !createData.id) {
-            console.error("Creation Failed:", createData);
-            alert(`Error creating database: ${createData.error?.message || "Check permissions"}`);
             setInitStatus('Error: Could not create database.');
             return;
         }
@@ -162,13 +178,11 @@ const App: React.FC = () => {
         await initializeSheetHeaders(finalSheetId, auth.token);
       }
       if (finalSheetId) {
-          // CHANGED: Save Sheet ID to localStorage
           localStorage.setItem('g_sheet_id', finalSheetId);
           setSpreadsheetId(finalSheetId);
       }
     } catch (err) {
       console.error("Init failed", err);
-      // alert("Failed to connect to Drive Folder. Check permissions.");
     } finally {
       if (spreadsheetId) setInitStatus('');
     }
@@ -198,11 +212,9 @@ const App: React.FC = () => {
     try {
       const sheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:F`, { headers: { Authorization: `Bearer ${auth.token}` } });
       
-      // Handle Token Expiry Gracefully
       if (sheetRes.status === 401) {
-        console.warn("Token expired. Please login again.");
-        // We could force logout here, or just let the user see the login screen eventually
-        // logout(); 
+        console.warn("Harmony: Token expired. Triggering refresh...");
+        login(); // Attempt to re-auth
         setIsLoading(false);
         return;
       }
@@ -210,16 +222,13 @@ const App: React.FC = () => {
       const sheetData = await sheetRes.json();
       
       if (sheetData.values) {
-        // --- PARSING LOGIC: Handle Legacy Strings vs New JSON Objects ---
         const parsedRecipes: Recipe[] = sheetData.values.map((row: any, idx: number) => {
           let ingredients: Ingredient[] = [];
           const rawIng = row[1];
-          // Try parse JSON
           try {
              ingredients = JSON.parse(rawIng);
              if (!Array.isArray(ingredients)) throw new Error("Not array");
           } catch {
-             // Fallback: Legacy comma separated string
              const parts = rawIng?.split(',') || [];
              ingredients = parts.map((s: string) => ({ amount: '', unit: '', item: s.trim() }));
           }
@@ -230,7 +239,6 @@ const App: React.FC = () => {
              instructions = JSON.parse(rawInst);
              if (!Array.isArray(instructions)) throw new Error("Not array");
           } catch {
-             // Fallback: Legacy || separated string
              const parts = rawInst?.split('||') || [];
              instructions = parts.map((s: string) => ({ text: s.trim(), isHeader: false }));
           }
@@ -253,7 +261,6 @@ const App: React.FC = () => {
         try {
           const appState = JSON.parse(syncData.values[0][0]);
           if (appState.weeklyPlan) {
-            // Ensure compatibility if legacy single-recipe format
             const cleanPlan = { ...INITIAL_PLAN };
             Object.keys(appState.weeklyPlan).forEach(day => {
                 const val = appState.weeklyPlan[day];
@@ -307,7 +314,6 @@ const App: React.FC = () => {
   }, [weeklyPlan, notes, manualItems, hiddenIngredients, checkedIngredients, auth.token, spreadsheetId, isPreview]);
 
   const uploadToDrive = async (file: File): Promise<string | null> => {
-    // CHANGED: Grab token from localStorage if needed, though auth.token is preferred
     const freshToken = auth.token || localStorage.getItem('g_access_token');
     if (!freshToken) return null;
     try {
@@ -337,10 +343,10 @@ const App: React.FC = () => {
     try {
       const values = newRecipes.map(r => [
         r.name,
-        JSON.stringify(r.ingredients),  // Store structured object
+        JSON.stringify(r.ingredients),
         r.imageUrl,
         r.tags.join(', '),
-        JSON.stringify(r.instructions), // Store structured object
+        JSON.stringify(r.instructions),
         r.id
       ]);
       await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:F:clear`, {
