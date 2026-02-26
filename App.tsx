@@ -393,21 +393,33 @@ const App: React.FC = () => {
   };
   
   const addEvent = async (event: { summary: string; start: string; allDay: boolean }) => {
-     try {
-      const body = {
-        summary: event.summary,
-        start: event.allDay ? { date: event.start } : { dateTime: event.start },
-        end: event.allDay ? { date: event.start } : { dateTime: new Date(new Date(event.start).getTime() + 3600000).toISOString() }
-      };
-      const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      if (res.ok) { fetchData(); return true; }
-    } catch (err) { console.error(err); }
-    return false;
-  };
+  try {
+    // Correctly format for Google Calendar "All Day" entries (date only, no time)
+    const body = {
+      summary: event.summary,
+      start: { date: event.start }, // Just the YYYY-MM-DD
+      end: { date: event.start }     // End date is the same for a single all-day event
+    };
+    
+    const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    
+    if (res.ok) { 
+      fetchData(); 
+      return true; 
+    } else {
+      const errData = await res.json();
+      console.error("Calendar API Error:", errData);
+      alert("Failed to add event. Check browser console.");
+    }
+  } catch (err) { 
+    console.error(err); 
+  }
+  return false;
+};
 
   const handleAddMeal = (day: string, recipe: Recipe) => {
     setWeeklyPlan(prev => ({
