@@ -66,15 +66,18 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [initStatus, setInitStatus] = useState<string>('');
+  
+  // --- NEW: Token Expiry State ---
+  const [isTokenExpired, setIsTokenExpired] = useState(false);
 
   const isInitialLoad = useRef(true);
   const saveTimeout = useRef<any>(null);
 
-  // --- NEW: BACKGROUND TOKEN REFRESH LOGIC ---
+  // --- BACKGROUND TOKEN REFRESH LOGIC ---
   useEffect(() => {
     if (!auth.token || isPreview || !auth.user?.email) return;
 
-    // Refresh token every 55 minutes to stay ahead of the 1-hour expiry
+    // Refresh token every 50 minutes to stay safely ahead of the 1-hour expiry
     const refreshInterval = setInterval(() => {
       console.log("Harmony: Refreshing access token in background...");
       const google = (window as any).google;
@@ -88,13 +91,19 @@ const App: React.FC = () => {
             if (response.access_token) {
               localStorage.setItem('g_access_token', response.access_token);
               setAuth(prev => ({ ...prev, token: response.access_token }));
+              setIsTokenExpired(false);
               console.log("Harmony: Token refreshed successfully.");
+            } else if (response.error) {
+              // Silent refresh failed (browser blocked, or session truly dead).
+              // Trigger manual reconnect UI.
+              console.error("Harmony: Silent token refresh failed", response.error);
+              setIsTokenExpired(true);
             }
           },
         });
         client.requestAccessToken();
       }
-    }, 55 * 60 * 1000); 
+    }, 50 * 60 * 1000); 
 
     return () => clearInterval(refreshInterval);
   }, [auth.token, auth.user?.email, isPreview]);
@@ -112,7 +121,14 @@ const App: React.FC = () => {
           localStorage.setItem('g_access_token', response.access_token);
           sessionStorage.removeItem('preview_mode');
           setIsPreview(false);
+          setIsTokenExpired(false); // Reset expiry block
+          
           fetchUserInfo(response.access_token);
+          
+          // Re-trigger fetch if we just recovered from an expired token
+          if (spreadsheetId && isTokenExpired) {
+            setTimeout(() => fetchData(response.access_token), 500);
+          }
         }
       },
     });
@@ -150,12 +166,21 @@ const App: React.FC = () => {
 
   const initializeSystem = useCallback(async () => {
     if (!auth.token || isPreview || spreadsheetId) return;
-    setInitStatus('Searching for Family Database...');
+    setInitStatus('Connecting to Family Database...');
     try {
       const q = `name = 'FamilyHarmonyDB' and '${ROOT_FOLDER_ID}' in parents and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false`;
       const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}`, {
         headers: { Authorization: `Bearer ${auth.token}` }
       });
+      
+      // Safety check: if API returns 401, stop and ask for token refresh
+      if (!searchRes.ok) {
+        console.warn("Harmony: API Error during init. Token might be expired.");
+        setIsTokenExpired(true);
+        setInitStatus('');
+        return;
+      }
+      
       const searchData = await searchRes.json();
       let finalSheetId = '';
 
@@ -206,15 +231,18 @@ const App: React.FC = () => {
     });
   };
 
-  const fetchData = useCallback(async () => {
-    if (isPreview || !auth.token || !spreadsheetId) return;
+  const fetchData = useCallback(async (overrideToken?: string) => {
+    const activeToken = overrideToken || auth.token;
+    if (isPreview || !activeToken || !spreadsheetId) return;
+    
     setIsLoading(true);
     try {
-      const sheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:F`, { headers: { Authorization: `Bearer ${auth.token}` } });
+      const sheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:F`, { headers: { Authorization: `Bearer ${activeToken}` } });
       
+      // Stop the auto-login loop. Set state to show reconnect button.
       if (sheetRes.status === 401) {
-        console.warn("Harmony: Token expired. Triggering refresh...");
-        login(); // Attempt to re-auth
+        console.warn("Harmony: Token expired. Triggering manual refresh UI...");
+        setIsTokenExpired(true); 
         setIsLoading(false);
         return;
       }
@@ -255,7 +283,7 @@ const App: React.FC = () => {
         setRecipes(parsedRecipes);
       }
 
-      const syncRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SyncData!A1?valueRenderOption=UNFORMATTED_VALUE`, { headers: { Authorization: `Bearer ${auth.token}` } });
+      const syncRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SyncData!A1?valueRenderOption=UNFORMATTED_VALUE`, { headers: { Authorization: `Bearer ${activeToken}` } });
       const syncData = await syncRes.json();
       if (syncData.values && syncData.values[0] && syncData.values[0][0]) {
         try {
@@ -278,7 +306,7 @@ const App: React.FC = () => {
       
       const now = new Date();
       now.setHours(0,0,0,0);
-      const calendarRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${now.toISOString()}&maxResults=50&orderBy=startTime&singleEvents=true`, { headers: { Authorization: `Bearer ${auth.token}` } });
+      const calendarRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${now.toISOString()}&maxResults=50&orderBy=startTime&singleEvents=true`, { headers: { Authorization: `Bearer ${activeToken}` } });
       const calendarData = await calendarRes.json();
       setCalendarEvents(calendarData.items || []);
 
@@ -291,13 +319,13 @@ const App: React.FC = () => {
   useEffect(() => {
     if (auth.isAuthenticated && !isPreview && !spreadsheetId) {
       initializeSystem();
-    } else if (auth.isAuthenticated && !isPreview && spreadsheetId) {
+    } else if (auth.isAuthenticated && !isPreview && spreadsheetId && !isTokenExpired) {
       fetchData();
     }
-  }, [auth.isAuthenticated, spreadsheetId, initializeSystem, fetchData, isPreview]);
+  }, [auth.isAuthenticated, spreadsheetId, initializeSystem, fetchData, isPreview, isTokenExpired]);
 
   useEffect(() => {
-    if (isPreview || !auth.token || isInitialLoad.current || !spreadsheetId) return;
+    if (isPreview || !auth.token || isInitialLoad.current || !spreadsheetId || isTokenExpired) return;
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
     saveTimeout.current = setTimeout(async () => {
       setIsSyncing(true);
@@ -311,7 +339,7 @@ const App: React.FC = () => {
       } catch (err) { console.error("Failed to sync state", err); } finally { setIsSyncing(false); }
     }, 2000);
     return () => clearTimeout(saveTimeout.current);
-  }, [weeklyPlan, notes, manualItems, hiddenIngredients, checkedIngredients, auth.token, spreadsheetId, isPreview]);
+  }, [weeklyPlan, notes, manualItems, hiddenIngredients, checkedIngredients, auth.token, spreadsheetId, isPreview, isTokenExpired]);
 
   const uploadToDrive = async (file: File): Promise<string | null> => {
     const freshToken = auth.token || localStorage.getItem('g_access_token');
@@ -393,33 +421,33 @@ const App: React.FC = () => {
   };
   
   const addEvent = async (event: { summary: string; start: string; allDay: boolean }) => {
-  try {
-    // Correctly format for Google Calendar "All Day" entries (date only, no time)
-    const body = {
-      summary: event.summary,
-      start: { date: event.start }, // Just the YYYY-MM-DD
-      end: { date: event.start }     // End date is the same for a single all-day event
-    };
-    
-    const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-    
-    if (res.ok) { 
-      fetchData(); 
-      return true; 
-    } else {
-      const errData = await res.json();
-      console.error("Calendar API Error:", errData);
-      alert("Failed to add event. Check browser console.");
+    try {
+      // Correctly format for Google Calendar "All Day" entries (date only, no time)
+      const body = {
+        summary: event.summary,
+        start: { date: event.start }, // Just the YYYY-MM-DD
+        end: { date: event.start }     // End date is the same for a single all-day event
+      };
+      
+      const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      
+      if (res.ok) { 
+        fetchData(); 
+        return true; 
+      } else {
+        const errData = await res.json();
+        console.error("Calendar API Error:", errData);
+        alert("Failed to add event. Check browser console.");
+      }
+    } catch (err) { 
+      console.error(err); 
     }
-  } catch (err) { 
-    console.error(err); 
-  }
-  return false;
-};
+    return false;
+  };
 
   const handleAddMeal = (day: string, recipe: Recipe) => {
     setWeeklyPlan(prev => ({
@@ -469,7 +497,26 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col md:flex-row min-h-screen">
+    <div className="flex flex-col md:flex-row min-h-screen relative">
+      
+      {/* EXPIRED SESSION BLOCKER OVERLAY */}
+      {isTokenExpired && (
+        <div className="absolute inset-0 z-[200] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="bg-white rounded-[2rem] shadow-2xl p-10 max-w-md w-full text-center space-y-6">
+            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full mx-auto flex items-center justify-center">
+               <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            </div>
+            <div>
+              <h2 className="text-2xl font-black text-slate-900">Session Expired</h2>
+              <p className="text-slate-500 mt-2">For security, your Google connection expires every hour. Please click below to safely reconnect without losing your place.</p>
+            </div>
+            <button onClick={login} className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition-all">
+               Reconnect Now
+            </button>
+          </div>
+        </div>
+      )}
+
       <nav className="w-full md:w-64 bg-white border-r border-slate-200 flex flex-col p-6 gap-8">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3"><div className="bg-indigo-600 p-2 rounded-lg text-white"><ICONS.Dashboard /></div><span className="text-xl font-bold tracking-tight">Harmony</span></div>
@@ -500,7 +547,7 @@ const App: React.FC = () => {
         {currentView === View.Recipes && (
           <RecipeBook 
             recipes={recipes} 
-            onRefresh={fetchData} 
+            onRefresh={() => fetchData()} 
             onAddRecipe={addRecipe}
             onUpdateRecipe={updateRecipe}
             onDeleteRecipe={deleteRecipe}
