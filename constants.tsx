@@ -5,7 +5,7 @@ import React from 'react';
 // ==========================================
 // CONFIGURATION
 // ==========================================
-export const CLIENT_ID = '858470161036-92e3qomguk6rp8e6pjdkq2el0l4st7a4.apps.googleusercontent.com';
+export const CLIENT_ID = '309956878792-h8c6pgagna6msducnm3jrivn34v9f7ta.apps.googleusercontent.com';
 export const API_KEY = process.env.API_KEY;
 
 // REPLACE THIS with the ID of the folder you created in your Business Drive
