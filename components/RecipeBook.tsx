@@ -1,6 +1,6 @@
 // components/RecipeBook.tsx
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Recipe, Ingredient, Instruction } from '../types';
 import { GoogleGenAI } from "@google/genai";
 import { API_KEY } from '../constants';
@@ -52,7 +52,9 @@ interface RecipeBookProps {
   onDeleteRecipe: (id: string) => Promise<boolean>;
   hiddenIngredients: string[];
   onUpdateHidden: (hidden: string[]) => void;
-  onAddManualShoppingItem: (name: string) => void; // New Shortcut
+  onAddManualShoppingItem: (name: string) => void;
+  externalIdToOpen?: string | null;
+  onClearExternalId?: () => void;
 }
 
 const RecipeBook: React.FC<RecipeBookProps> = ({ 
@@ -63,10 +65,12 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
   onDeleteRecipe,
   hiddenIngredients,
   onUpdateHidden,
-  onAddManualShoppingItem
+  onAddManualShoppingItem,
+  externalIdToOpen,
+  onClearExternalId
 }) => {
   const [search, setSearch] = useState('');
-  const [filterMode, setFilterMode] = useState<'all' | 'favorites' | 'new'>('all'); // New filter state
+  const [filterMode, setFilterMode] = useState<'all' | 'favorites' | 'new'>('all');
   const [isAdding, setIsAdding] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -83,11 +87,23 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
   const [formTags, setFormTags] = useState('');
   const [formIngredients, setFormIngredients] = useState<Ingredient[]>([]);
   const [formInstructions, setFormInstructions] = useState<Instruction[]>([]);
-  const [formIsFavorite, setFormIsFavorite] = useState(false); // New form field
-  const [formIsNew, setFormIsNew] = useState(true); // New form field
+  const [formIsFavorite, setFormIsFavorite] = useState(false);
+  const [formIsNew, setFormIsNew] = useState(true);
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  // Handle opening recipe from Dashboard
+  useEffect(() => {
+    if (externalIdToOpen) {
+      const r = recipes.find(rec => rec.id === externalIdToOpen);
+      if (r) {
+        setScale(1);
+        setViewingRecipe(r);
+      }
+      onClearExternalId?.();
+    }
+  }, [externalIdToOpen, recipes, onClearExternalId]);
 
   const filtered = useMemo(() => {
     return recipes.filter(r => {
@@ -99,17 +115,11 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
   }, [recipes, search, filterMode]);
 
   const resetForm = () => {
-    setFormId('');
-    setFormName('');
-    setFormImageUrl('');
-    setFormTags('');
+    setFormId(''); setFormName(''); setFormImageUrl(''); setFormTags('');
     setFormIngredients([{ amount: '', unit: '', item: '' }]);
     setFormInstructions([{ text: '', isHeader: false }]);
-    setFormIsFavorite(false);
-    setFormIsNew(true);
-    setSelectedFile(null);
-    setPreviewUrl(null);
-    setScale(1);
+    setFormIsFavorite(false); setFormIsNew(true);
+    setSelectedFile(null); setPreviewUrl(null); setScale(1);
   };
 
   const startEditing = (recipe: Recipe) => {
@@ -122,15 +132,11 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
     setFormIsFavorite(!!recipe.isFavorite);
     setFormIsNew(!!recipe.isNew);
     setPreviewUrl(recipe.imageUrl);
-    setIsEditing(true);
-    setViewingRecipe(null);
-    setIsAdding(true);
+    setIsEditing(true); setViewingRecipe(null); setIsAdding(true);
   };
 
   const closeModal = () => {
-    setIsAdding(false);
-    setIsEditing(false);
-    resetForm();
+    setIsAdding(false); setIsEditing(false); resetForm();
   };
 
   const handleScrape = async () => {
@@ -142,9 +148,13 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
         model: 'gemini-2.5-flash-lite',
         contents: `Extract recipe data from: ${importUrl}. Output valid JSON only: { "name": "string", "ingredients": [ { "amount": "string", "unit": "string", "item": "string" } ], "instructions": [ { "text": "string", "isHeader": boolean } ], "tags": "string", "imageUrl": "string" }`,
       });
-      let rawText = (response as any).text();
+      let rawText = '';
+      if (typeof response.text === 'function') rawText = response.text();
+      else if ((response as any).candidates?.[0]?.content?.parts) rawText = (response as any).candidates[0].content.parts.map((p: any) => p.text || '').join('');
+
       const cleanJson = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
       const data = JSON.parse(cleanJson);
+
       setFormName(data.name || '');
       setFormIngredients(data.ingredients || []);
       setFormInstructions(data.instructions || []);
@@ -152,7 +162,7 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
       setFormImageUrl(data.imageUrl || '');
       setPreviewUrl(data.imageUrl || null);
       setImportUrl('');
-    } catch (err) { console.error(err); alert("AI Import failed."); } finally { setIsScraping(false); }
+    } catch (err) { alert("AI Import failed."); } finally { setIsScraping(false); }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -190,7 +200,6 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
     await onUpdateRecipe({ ...recipe, isFavorite: !recipe.isFavorite });
   };
 
-  // DYNAMIC INPUT UTILS
   const updateIngredient = (index: number, field: keyof Ingredient, value: string) => {
     const newIngs = [...formIngredients];
     newIngs[index] = { ...newIngs[index], [field]: value };
@@ -205,6 +214,16 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
   };
   const addInstructionLine = () => setFormInstructions([...formInstructions, { text: '', isHeader: false }]);
   const removeInstructionLine = (index: number) => setFormInstructions(formInstructions.filter((_, i) => i !== index));
+
+  const toggleIngredientShopping = (ingredientItem: string) => {
+    const clean = ingredientItem.toLowerCase().trim();
+    if (hiddenIngredients.includes(clean)) onUpdateHidden(hiddenIngredients.filter(i => i !== clean));
+    else onUpdateHidden([...hiddenIngredients, clean]);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (await onDeleteRecipe(id)) setViewingRecipe(null);
+  };
 
   return (
     <div className="flex flex-col lg:flex-row gap-8">
@@ -242,7 +261,6 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-8">
           {filtered.map(recipe => (
             <div key={recipe.id} onClick={() => { setScale(1); setViewingRecipe(recipe); }} className="bg-white rounded-[2.5rem] overflow-hidden shadow-sm border border-slate-100 transition-all hover:shadow-xl group cursor-pointer relative">
-              {/* Floating Favorite Toggle */}
               <button 
                 onClick={(e) => toggleFavoriteShortcut(e, recipe)}
                 className={`absolute top-4 right-4 z-10 w-10 h-10 rounded-full backdrop-blur-md flex items-center justify-center transition-all ${recipe.isFavorite ? 'bg-red-500 text-white shadow-lg' : 'bg-black/20 text-white hover:bg-black/40'}`}
@@ -279,6 +297,7 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
           <div className="bg-white w-full h-full md:max-w-7xl md:h-[90vh] md:rounded-[3rem] shadow-2xl overflow-hidden flex flex-col relative">
             <div className="absolute top-6 right-6 z-20 flex gap-3">
                <button onClick={() => startEditing(viewingRecipe)} className="px-4 py-2 bg-white/90 backdrop-blur text-indigo-600 font-bold rounded-full shadow-sm hover:bg-indigo-50 transition-all">Edit</button>
+               <button onClick={() => handleDelete(viewingRecipe.id)} className="px-4 py-2 bg-white/90 backdrop-blur text-red-500 font-bold rounded-full shadow-sm hover:bg-red-50 transition-all">Delete</button>
                <button onClick={() => setViewingRecipe(null)} className="w-10 h-10 bg-slate-100 text-slate-500 rounded-full flex items-center justify-center hover:bg-slate-200 transition-all">✕</button>
             </div>
             
@@ -309,23 +328,31 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
                         </div>
                       </div>
                       <div className="space-y-2">
-                        {viewingRecipe.ingredients.map((ing, idx) => (
-                          <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl group/ing">
-                            <span className="text-sm font-bold text-slate-700 leading-tight">
-                              <span className="text-indigo-600 mr-2">{scaleIngredient(ing.amount, scale)} {ing.unit}</span>
-                              {ing.item}
-                            </span>
-                            {/* Ingredient-to-Shopping Shortcut */}
-                            <button 
-                              onClick={() => onAddManualShoppingItem(`${ing.item} (${scaleIngredient(ing.amount, scale)} ${ing.unit})`)}
-                              className="opacity-0 group-hover/ing:opacity-100 p-2 bg-white text-indigo-600 rounded-xl shadow-sm hover:bg-indigo-600 hover:text-white transition-all"
-                              title="Restock this item"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
-                            </button>
-                          </div>
-                        ))}
+                        {viewingRecipe.ingredients.map((ing, idx) => {
+                          const cleanName = ing.item.toLowerCase().trim();
+                          const isGlobalExcluded = hiddenIngredients.includes(cleanName);
+                          return (
+                            <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl group/ing hover:bg-white transition-all border border-transparent hover:border-indigo-100">
+                              <span 
+                                onClick={() => toggleIngredientShopping(ing.item)}
+                                className={`flex-1 text-sm font-bold cursor-pointer select-none leading-tight ${isGlobalExcluded ? 'text-slate-300 line-through' : 'text-slate-700'}`}
+                              >
+                                <span className={`${isGlobalExcluded ? 'text-slate-300' : 'text-indigo-600'} mr-2`}>{scaleIngredient(ing.amount, scale)} {ing.unit}</span>
+                                {ing.item}
+                              </span>
+                              
+                              <button 
+                                onClick={() => onAddManualShoppingItem(`${ing.item} (${scaleIngredient(ing.amount, scale)} ${ing.unit})`)}
+                                className="opacity-0 group-hover/ing:opacity-100 p-2 bg-white text-indigo-600 rounded-xl shadow-sm hover:bg-indigo-600 hover:text-white transition-all ml-4"
+                                title="Add one-time to list"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
+                      <p className="mt-4 text-[10px] text-slate-400 italic">Click an ingredient to globally exclude it from auto-lists. Use the + button to add it one-time to your manual list.</p>
                     </div>
 
                     <div className="xl:border-l xl:border-slate-100 xl:pl-12">
@@ -433,7 +460,7 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
               </div>
               
               <div className="flex gap-4 pt-4 border-t border-slate-100">
-                <button type="button" onClick={closeModal} className="flex-1 py-3 font-bold text-slate-400 hover:bg-slate-50 rounded-xl">Cancel</button>
+                <button type="button" onClick={closeModal} className="flex-1 py-3 font-bold text-slate-400 hover:bg-slate-50 rounded-xl transition-all">Cancel</button>
                 <button type="submit" disabled={isSubmitting} className="flex-[2] py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg hover:bg-indigo-700 disabled:opacity-50 transition-all">
                   {isSubmitting ? 'Saving...' : 'Save Recipe'}
                 </button>
