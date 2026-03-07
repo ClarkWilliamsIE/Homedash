@@ -12,10 +12,10 @@ interface DashboardProps {
   events: CalendarEvent[];
   weeklyPlan: WeeklyPlan;
   recipes: Recipe[];
-  // Updated Prop Signatures
   onAddMeal: (day: string, recipe: Recipe) => void;
   onRemoveMeal: (day: string, recipeId: string) => void;
   onMoveMeal: (source: string, target: string, recipeId: string) => void;
+  onViewRecipe: (recipe: Recipe) => void; // New Handler
   
   notes: FamilyNote[];
   onAddNote: (text: string) => void;
@@ -29,6 +29,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   onAddMeal, 
   onRemoveMeal,
   onMoveMeal,
+  onViewRecipe,
   notes,
   onAddNote,
   onRemoveNote
@@ -46,7 +47,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const handleSelectRecipe = (recipe: Recipe) => {
     if (activeDay) {
-      onAddMeal(activeDay, recipe); // Changed to ADD
+      onAddMeal(activeDay, recipe);
       setIsPickerOpen(false);
       setActiveDay(null);
     }
@@ -54,16 +55,14 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
-      {/* Main Column */}
       <div className="xl:col-span-3 space-y-8">
         <WeatherWidget />
 
-        {/* Weekly Planner */}
         <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100">
           <div className="flex justify-between items-center mb-8">
             <h3 className="text-xl font-bold text-slate-900">Weekly Meal Planner</h3>
             <div className="text-sm text-slate-400 font-medium bg-slate-50 px-3 py-1 rounded-full">
-               Drag meals to move days
+               Click to view • Drag to move
             </div>
           </div>
           
@@ -72,17 +71,17 @@ const Dashboard: React.FC<DashboardProps> = ({
               <MealDay 
                 key={day} 
                 day={day} 
-                meals={weeklyPlan[day] || []} // Default to empty array
+                meals={weeklyPlan[day] || []}
                 onAdd={() => openPicker(day)}
                 onRemove={(recipeId) => onRemoveMeal(day, recipeId)}
                 onDragDrop={onMoveMeal}
+                onViewMeal={onViewRecipe} // Pass to child
               />
             ))}
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* Calendar Widget */}
           <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100">
             <h3 className="text-xl font-bold text-slate-900 mb-6">Today's Agenda</h3>
             <div className="space-y-4">
@@ -113,17 +112,13 @@ const Dashboard: React.FC<DashboardProps> = ({
               )}
             </div>
           </div>
-
-          {/* ... inside the grid ... */}
           <MediaWidget />
         </div>
       </div>
 
-      {/* Right Column (Utilities) */}
       <div className="space-y-8 flex flex-col">
         <BinNotifier />
 
-        {/* Fridge Notes */}
         <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 flex flex-col flex-1 min-h-[500px]">
           <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
             <svg className="w-5 h-5 text-amber-500" fill="currentColor" viewBox="0 0 20 20"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" /><path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" /></svg>
