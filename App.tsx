@@ -161,7 +161,7 @@ const App: React.FC = () => {
   const initializeSheetHeaders = async (id: string, token: string) => {
     const requests = [{ addSheet: { properties: { title: "Recipes" } } }, { addSheet: { properties: { title: "ShoppingList" } } }, { addSheet: { properties: { title: "SyncData" } } }];
     await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}:batchUpdate`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ requests }) });
-    // Updated headers for Favorite and New columns
+    // Updated headers for Columns G (Favorite) and H (New)
     await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Recipes!A1:H1?valueInputOption=USER_ENTERED`, { method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ values: [['Name', 'Ingredients', 'ImageURL', 'Tags', 'Instructions', 'ID', 'isFavorite', 'isNew']] }) });
   };
 
@@ -171,6 +171,7 @@ const App: React.FC = () => {
     
     setIsLoading(true);
     try {
+      // Fetching all columns up to H
       const sheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:H`, { headers: { Authorization: `Bearer ${activeToken}` } });
       if (sheetRes.status === 401) { setIsTokenExpired(true); setIsLoading(false); return; }
 
@@ -189,8 +190,8 @@ const App: React.FC = () => {
             instructions,
             imageUrl: row[2] || `https://picsum.photos/seed/${idx}/400/300`,
             tags: row[3]?.split(',').map((s: string) => s.trim()) || [],
-            isFavorite: row[6] === 'TRUE',
-            isNew: row[7] === 'TRUE'
+            isFavorite: row[6] === 'TRUE', // Mapping sheet column G
+            isNew: row[7] === 'TRUE'       // Mapping sheet column H
           };
         });
         setRecipes(parsedRecipes);
@@ -257,6 +258,7 @@ const App: React.FC = () => {
     setRecipes(newRecipes);
     if (!spreadsheetId || !auth.token) return;
     try {
+      // Writing columns A through H
       const values = newRecipes.map(r => [
         r.name, 
         JSON.stringify(r.ingredients), 
@@ -296,7 +298,8 @@ const App: React.FC = () => {
     return false;
   };
 
-  const addManualItemExternally = (name: string) => {
+  // Helper to allow ingredient buttons in the RecipeBook to add manual shopping items
+  const addManualItemFromRecipe = (name: string) => {
     setManualItems(prev => [...prev, { id: Date.now().toString(), name: name, checked: false }]);
   };
   
@@ -365,7 +368,7 @@ const App: React.FC = () => {
 
       <main className="flex-1 bg-slate-50 p-4 md:p-10 overflow-y-auto">
         {currentView === View.Dashboard && <Dashboard events={calendarEvents} weeklyPlan={weeklyPlan} recipes={recipes} notes={notes} onAddMeal={(d, r) => setWeeklyPlan(p => ({...p, [d]: [...(p[d]||[]), r]}))} onRemoveMeal={(d, id) => setWeeklyPlan(p => ({...p, [d]: p[d].filter(r => r.id !== id)}))} onMoveMeal={(s, t, id) => setWeeklyPlan(p => { const next = {...p}; const move = next[s].find(r => r.id === id); if(move){ next[s] = next[s].filter(r => r.id !== id); next[t] = [...next[t], move]; } return next; })} onAddNote={(text) => setNotes(prev => [{ id: Date.now().toString(), text, color: 'bg-yellow-100' }, ...prev])} onRemoveNote={(id) => setNotes(prev => prev.filter(n => n.id !== id))} />}
-        {currentView === View.Recipes && <RecipeBook recipes={recipes} onRefresh={() => fetchData()} onAddRecipe={addRecipe} onUpdateRecipe={updateRecipe} onDeleteRecipe={deleteRecipe} hiddenIngredients={hiddenIngredients} onUpdateHidden={setHiddenIngredients} onAddManualShoppingItem={addManualItemExternally} />}
+        {currentView === View.Recipes && <RecipeBook recipes={recipes} onRefresh={() => fetchData()} onAddRecipe={addRecipe} onUpdateRecipe={updateRecipe} onDeleteRecipe={deleteRecipe} hiddenIngredients={hiddenIngredients} onUpdateHidden={setHiddenIngredients} onAddManualShoppingItem={addManualItemFromRecipe} />}
         {currentView === View.ShoppingList && <ShoppingList weeklyPlan={weeklyPlan} authToken={auth.token} spreadsheetId={spreadsheetId} manualItems={manualItems} onUpdateItems={setManualItems} hiddenIngredients={hiddenIngredients} onUpdateHidden={setHiddenIngredients} checkedIngredients={checkedIngredients} onUpdateChecked={setCheckedIngredients} />}
         {currentView === View.Calendar && <CalendarView events={calendarEvents} onAddEvent={addEvent} />}
       </main>
