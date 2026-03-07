@@ -1,4 +1,4 @@
-// components/ShoppingList.tsx
+// components/ShoppingList.tsx - Replace the entire file with this version
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { WeeklyPlan, Recipe } from '../types';
@@ -10,8 +10,10 @@ interface ShoppingListProps {
   spreadsheetId: string | null;
   manualItems: ManualItem[];
   onUpdateItems: (items: ManualItem[]) => void;
-  hiddenIngredients: string[];
+  hiddenIngredients: string[]; // Permanent Staples
   onUpdateHidden: (items: string[]) => void;
+  clearedIngredients: string[]; // Bought this week
+  onUpdateCleared: (items: string[]) => void;
   checkedIngredients: string[];
   onUpdateChecked: (items: string[]) => void;
 }
@@ -24,6 +26,8 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
   onUpdateItems,
   hiddenIngredients,
   onUpdateHidden,
+  clearedIngredients,
+  onUpdateCleared,
   checkedIngredients,
   onUpdateChecked
 }) => {
@@ -40,22 +44,20 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
     const list: Record<string, number> = {};
     selectedRecipes.forEach(recipe => {
       recipe.ingredients.forEach(ing => {
-        // Access 'item' because 'ing' is now an object { amount, unit, item }
         const clean = ing.item.toLowerCase().trim();
-        if (!hiddenIngredients.includes(clean)) {
+        // HIDE if it's a global staple OR if it's already been bought this week
+        if (!hiddenIngredients.includes(clean) && !clearedIngredients.includes(clean)) {
           list[clean] = (list[clean] || 0) + 1;
         }
       });
     });
     return Object.entries(list).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [selectedRecipes, hiddenIngredients]);
+  }, [selectedRecipes, hiddenIngredients, clearedIngredients]);
 
   // -- SHEET SYNC LOGIC --
   useEffect(() => {
     if (!authToken || !spreadsheetId) return;
-
     if (syncTimeout.current) clearTimeout(syncTimeout.current);
-
     setSheetSyncStatus('syncing');
     
     syncTimeout.current = setTimeout(async () => {
@@ -67,13 +69,11 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
           ...manualItems.map(item => ['Manual', item.name])
         ];
 
-        // Clear the sheet
         await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/ShoppingList!A:C:clear`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${authToken}` }
         });
 
-        // Write the fresh list
         await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/ShoppingList!A1?valueInputOption=USER_ENTERED`, {
           method: 'PUT',
           headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
@@ -89,7 +89,6 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
 
     return () => clearTimeout(syncTimeout.current);
   }, [aggregatedIngredients, manualItems, authToken, spreadsheetId]);
-
 
   // -- INTERACTION HANDLERS --
 
@@ -112,14 +111,19 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
   };
 
   const clearSelected = () => {
+    // 1. Remove manual items that are checked
     onUpdateItems(manualItems.filter(i => !i.checked));
-    onUpdateHidden([...hiddenIngredients, ...checkedIngredients]);
+    
+    // 2. Add checked recipe items to the WEEKLY CLEARED list (not the global staples list!)
+    onUpdateCleared([...clearedIngredients, ...checkedIngredients]);
+    
+    // 3. Reset the current checkmarks
     onUpdateChecked([]);
   };
 
-  const restoreHidden = () => {
-    if (confirm("Restore all cleared recipe items?")) {
-      onUpdateHidden([]);
+  const restoreWeeklyItems = () => {
+    if (confirm("Bring back all items bought this week?")) {
+      onUpdateCleared([]);
     }
   };
 
@@ -184,8 +188,8 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
             <section className="space-y-4">
                <div className="flex justify-between items-center">
                  <h4 className="text-xs font-black uppercase text-slate-400 tracking-widest">From Recipes</h4>
-                 {hiddenIngredients.length > 0 && (
-                   <button onClick={restoreHidden} className="text-[10px] font-bold text-indigo-400 hover:text-indigo-600">Restore Cleared</button>
+                 {clearedIngredients.length > 0 && (
+                   <button onClick={restoreWeeklyItems} className="text-[10px] font-bold text-indigo-400 hover:text-indigo-600">Restore Cleared</button>
                  )}
                </div>
                <div className="space-y-2">
