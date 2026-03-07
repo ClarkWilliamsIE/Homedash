@@ -15,8 +15,8 @@ interface DashboardProps {
   onAddMeal: (day: string, recipe: Recipe) => void;
   onRemoveMeal: (day: string, recipeId: string) => void;
   onMoveMeal: (source: string, target: string, recipeId: string) => void;
-  onViewRecipe: (recipe: Recipe) => void; // New Handler
-  
+  onViewRecipe: (recipe: Recipe) => void;
+  onResetWeek: () => void; // New Prop
   notes: FamilyNote[];
   onAddNote: (text: string) => void;
   onRemoveNote: (id: string) => void;
@@ -30,6 +30,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   onRemoveMeal,
   onMoveMeal,
   onViewRecipe,
+  onResetWeek,
   notes,
   onAddNote,
   onRemoveNote
@@ -59,11 +60,18 @@ const Dashboard: React.FC<DashboardProps> = ({
         <WeatherWidget />
 
         <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100">
-          <div className="flex justify-between items-center mb-8">
-            <h3 className="text-xl font-bold text-slate-900">Weekly Meal Planner</h3>
-            <div className="text-sm text-slate-400 font-medium bg-slate-50 px-3 py-1 rounded-full">
-               Click to view • Drag to move
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+            <div>
+              <h3 className="text-xl font-bold text-slate-900">Weekly Meal Planner</h3>
+              <p className="text-xs text-slate-400 font-medium">Click to view • Drag to move</p>
             </div>
+            
+            <button 
+              onClick={onResetWeek}
+              className="px-4 py-2 bg-slate-100 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 rounded-xl text-xs font-black uppercase tracking-widest transition-all border border-transparent hover:border-indigo-100"
+            >
+              Start New Week
+            </button>
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
@@ -75,7 +83,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 onAdd={() => openPicker(day)}
                 onRemove={(recipeId) => onRemoveMeal(day, recipeId)}
                 onDragDrop={onMoveMeal}
-                onViewMeal={onViewRecipe} // Pass to child
+                onViewMeal={onViewRecipe} 
               />
             ))}
           </div>
