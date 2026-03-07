@@ -1,4 +1,4 @@
-// App.tsx
+// App.tsx - Replace the entire file with this version
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AuthState, View, Recipe, CalendarEvent, WeeklyPlan, FamilyNote, Ingredient, Instruction } from './types';
@@ -31,11 +31,16 @@ const App: React.FC = () => {
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan>(INITIAL_PLAN);
   const [notes, setNotes] = useState<FamilyNote[]>([]);
   const [manualItems, setManualItems] = useState<ManualItem[]>([]);
+  
+  // STATS FOR INGREDIENTS:
+  // hiddenIngredients = Global Staples (Pantry items like Soy Sauce)
   const [hiddenIngredients, setHiddenIngredients] = useState<string[]>([]);
+  // clearedIngredients = Bought for this week (items cleared from the list)
+  const [clearedIngredients, setClearedIngredients] = useState<string[]>([]);
+  
   const [checkedIngredients, setCheckedIngredients] = useState<string[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   
-  // State for opening a recipe from the Dashboard
   const [externallySelectedRecipeId, setExternallySelectedRecipeId] = useState<string | null>(null);
 
   const [isLoading, setIsLoading] = useState(false);
@@ -205,6 +210,7 @@ const App: React.FC = () => {
           if (appState.notes) setNotes(appState.notes);
           if (appState.manualItems) setManualItems(appState.manualItems);
           if (appState.hiddenIngredients) setHiddenIngredients(appState.hiddenIngredients);
+          if (appState.clearedIngredients) setClearedIngredients(appState.clearedIngredients);
           if (appState.checkedIngredients) setCheckedIngredients(appState.checkedIngredients);
         } catch (e) { console.error("Failed to parse SyncData", e); }
       }
@@ -228,14 +234,21 @@ const App: React.FC = () => {
     saveTimeout.current = setTimeout(async () => {
       setIsSyncing(true);
       try {
-        const payload = JSON.stringify({ weeklyPlan, notes, manualItems, hiddenIngredients, checkedIngredients });
+        const payload = JSON.stringify({ 
+          weeklyPlan, 
+          notes, 
+          manualItems, 
+          hiddenIngredients, 
+          clearedIngredients, // Sync the new bought list
+          checkedIngredients 
+        });
         await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SyncData!A1?valueInputOption=USER_ENTERED`, {
           method: 'PUT', headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ values: [[payload]] })
         });
       } catch (err) { console.error("Failed to sync state", err); } finally { setIsSyncing(false); }
     }, 2000);
     return () => clearTimeout(saveTimeout.current);
-  }, [weeklyPlan, notes, manualItems, hiddenIngredients, checkedIngredients, auth.token, spreadsheetId, isTokenExpired]);
+  }, [weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, auth.token, spreadsheetId, isTokenExpired]);
 
   const uploadToDrive = async (file: File): Promise<string | null> => {
     const freshToken = auth.token || localStorage.getItem('g_access_token');
@@ -371,7 +384,21 @@ const App: React.FC = () => {
       <main className="flex-1 bg-slate-50 p-4 md:p-10 overflow-y-auto">
         {currentView === View.Dashboard && <Dashboard events={calendarEvents} weeklyPlan={weeklyPlan} recipes={recipes} notes={notes} onAddMeal={(d, r) => setWeeklyPlan(p => ({...p, [d]: [...(p[d]||[]), r]}))} onRemoveMeal={(d, id) => setWeeklyPlan(p => ({...p, [d]: p[d].filter(r => r.id !== id)}))} onMoveMeal={(s, t, id) => setWeeklyPlan(p => { const next = {...p}; const move = next[s].find(r => r.id === id); if(move){ next[s] = next[s].filter(r => r.id !== id); next[t] = [...next[t], move]; } return next; })} onAddNote={(text) => setNotes(prev => [{ id: Date.now().toString(), text, color: 'bg-yellow-100' }, ...prev])} onRemoveNote={(id) => setNotes(prev => prev.filter(n => n.id !== id))} onViewRecipe={handleOpenRecipeFromDashboard} />}
         {currentView === View.Recipes && <RecipeBook recipes={recipes} onRefresh={() => fetchData()} onAddRecipe={addRecipe} onUpdateRecipe={updateRecipe} onDeleteRecipe={deleteRecipe} hiddenIngredients={hiddenIngredients} onUpdateHidden={setHiddenIngredients} onAddManualShoppingItem={addManualItemFromRecipe} externalIdToOpen={externallySelectedRecipeId} onClearExternalId={() => setExternallySelectedRecipeId(null)} />}
-        {currentView === View.ShoppingList && <ShoppingList weeklyPlan={weeklyPlan} authToken={auth.token} spreadsheetId={spreadsheetId} manualItems={manualItems} onUpdateItems={setManualItems} hiddenIngredients={hiddenIngredients} onUpdateHidden={setHiddenIngredients} checkedIngredients={checkedIngredients} onUpdateChecked={setCheckedIngredients} />}
+        {currentView === View.ShoppingList && (
+          <ShoppingList 
+            weeklyPlan={weeklyPlan} 
+            authToken={auth.token} 
+            spreadsheetId={spreadsheetId} 
+            manualItems={manualItems} 
+            onUpdateItems={setManualItems} 
+            hiddenIngredients={hiddenIngredients} 
+            onUpdateHidden={setHiddenIngredients} 
+            clearedIngredients={clearedIngredients}
+            onUpdateCleared={setClearedIngredients}
+            checkedIngredients={checkedIngredients} 
+            onUpdateChecked={setCheckedIngredients} 
+          />
+        )}
         {currentView === View.Calendar && <CalendarView events={calendarEvents} onAddEvent={addEvent} />}
       </main>
     </div>
