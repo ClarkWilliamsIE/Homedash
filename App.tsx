@@ -1,4 +1,4 @@
-// App.tsx - Replace the entire file with this version
+// App.tsx
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AuthState, View, Recipe, CalendarEvent, WeeklyPlan, FamilyNote, Ingredient, Instruction } from './types';
@@ -32,10 +32,9 @@ const App: React.FC = () => {
   const [notes, setNotes] = useState<FamilyNote[]>([]);
   const [manualItems, setManualItems] = useState<ManualItem[]>([]);
   
-  // STATS FOR INGREDIENTS:
-  // hiddenIngredients = Global Staples (Pantry items like Soy Sauce)
+  // hiddenIngredients = Permanent Staples (Soy Sauce, Flour)
   const [hiddenIngredients, setHiddenIngredients] = useState<string[]>([]);
-  // clearedIngredients = Bought for this week (items cleared from the list)
+  // clearedIngredients = Bought for this specific week
   const [clearedIngredients, setClearedIngredients] = useState<string[]>([]);
   
   const [checkedIngredients, setCheckedIngredients] = useState<string[]>([]);
@@ -239,7 +238,7 @@ const App: React.FC = () => {
           notes, 
           manualItems, 
           hiddenIngredients, 
-          clearedIngredients, // Sync the new bought list
+          clearedIngredients, 
           checkedIngredients 
         });
         await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SyncData!A1?valueInputOption=USER_ENTERED`, {
@@ -249,22 +248,6 @@ const App: React.FC = () => {
     }, 2000);
     return () => clearTimeout(saveTimeout.current);
   }, [weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, auth.token, spreadsheetId, isTokenExpired]);
-
-  const uploadToDrive = async (file: File): Promise<string | null> => {
-    const freshToken = auth.token || localStorage.getItem('g_access_token');
-    if (!freshToken) return null;
-    try {
-      const metadata = { name: `recipe_${Date.now()}_${file.name}`, mimeType: file.type, parents: [ROOT_FOLDER_ID] };
-      const formData = new FormData();
-      formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-      formData.append('file', file);
-      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', { method: 'POST', headers: { Authorization: `Bearer ${freshToken}` }, body: formData });
-      if (!res.ok) throw new Error("Upload failed");
-      const data = await res.json();
-      await fetch(`https://www.googleapis.com/drive/v3/files/${data.id}/permissions`, { method: 'POST', headers: { Authorization: `Bearer ${freshToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'reader', type: 'anyone' }) });
-      return `https://drive.google.com/thumbnail?id=${data.id}&sz=w800`;
-    } catch (err) { console.error(err); return null; }
-  };
 
   const saveAllRecipesToSheet = async (newRecipes: Recipe[]) => {
     setRecipes(newRecipes);
@@ -280,23 +263,20 @@ const App: React.FC = () => {
         r.isFavorite ? 'TRUE' : 'FALSE',
         r.isNew ? 'TRUE' : 'FALSE'
       ]);
-      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:H:clear`, { method: 'POST', headers: { Authorization: `Bearer ${auth.token}` } });
+      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:H:clear`, { method: 'POST', headers: { Authorization: `Bearer ${authToken}` } });
       await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:H?valueInputOption=USER_ENTERED`, { method: 'PUT', headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ values }) });
     } catch (err) { console.error("Failed to save recipes", err); }
   };
 
   const addRecipe = async (recipe: Omit<Recipe, 'id'>, imageFile?: File) => {
     let finalImageUrl = recipe.imageUrl;
-    if (imageFile) { const uploadedUrl = await uploadToDrive(imageFile); if (uploadedUrl) finalImageUrl = uploadedUrl; }
     const newRecipe = { ...recipe, imageUrl: finalImageUrl, id: Date.now().toString() };
     await saveAllRecipesToSheet([...recipes, newRecipe]);
     return true;
   };
 
   const updateRecipe = async (updatedRecipe: Recipe, imageFile?: File) => {
-    let finalImageUrl = updatedRecipe.imageUrl;
-    if (imageFile) { const uploadedUrl = await uploadToDrive(imageFile); if (uploadedUrl) finalImageUrl = uploadedUrl; }
-    const newRecipes = recipes.map(r => r.id === updatedRecipe.id ? { ...updatedRecipe, imageUrl: finalImageUrl } : r);
+    const newRecipes = recipes.map(r => r.id === updatedRecipe.id ? updatedRecipe : r);
     await saveAllRecipesToSheet(newRecipes);
     return true;
   };
@@ -309,7 +289,19 @@ const App: React.FC = () => {
     return false;
   };
 
+  const handleResetWeek = () => {
+    if (confirm("Clear the entire meal plan and reset the shopping list for a new week?")) {
+      setWeeklyPlan(INITIAL_PLAN);
+      setClearedIngredients([]);
+      setCheckedIngredients([]);
+      setManualItems([]);
+    }
+  };
+
   const addManualItemFromRecipe = (name: string) => {
+    // If the item was previously "cleared" (bought), un-clear it now that we're adding it manually
+    const clean = name.toLowerCase().split('(')[0].trim();
+    setClearedIngredients(prev => prev.filter(i => i !== clean));
     setManualItems(prev => [...prev, { id: Date.now().toString(), name: name, checked: false }]);
   };
   
@@ -382,7 +374,21 @@ const App: React.FC = () => {
       </nav>
 
       <main className="flex-1 bg-slate-50 p-4 md:p-10 overflow-y-auto">
-        {currentView === View.Dashboard && <Dashboard events={calendarEvents} weeklyPlan={weeklyPlan} recipes={recipes} notes={notes} onAddMeal={(d, r) => setWeeklyPlan(p => ({...p, [d]: [...(p[d]||[]), r]}))} onRemoveMeal={(d, id) => setWeeklyPlan(p => ({...p, [d]: p[d].filter(r => r.id !== id)}))} onMoveMeal={(s, t, id) => setWeeklyPlan(p => { const next = {...p}; const move = next[s].find(r => r.id === id); if(move){ next[s] = next[s].filter(r => r.id !== id); next[t] = [...next[t], move]; } return next; })} onAddNote={(text) => setNotes(prev => [{ id: Date.now().toString(), text, color: 'bg-yellow-100' }, ...prev])} onRemoveNote={(id) => setNotes(prev => prev.filter(n => n.id !== id))} onViewRecipe={handleOpenRecipeFromDashboard} />}
+        {currentView === View.Dashboard && (
+          <Dashboard 
+            events={calendarEvents} 
+            weeklyPlan={weeklyPlan} 
+            recipes={recipes} 
+            notes={notes} 
+            onAddMeal={(d, r) => setWeeklyPlan(p => ({...p, [d]: [...(p[d]||[]), r]}))} 
+            onRemoveMeal={(d, id) => setWeeklyPlan(p => ({...p, [d]: p[d].filter(r => r.id !== id)}))} 
+            onMoveMeal={(s, t, id) => setWeeklyPlan(p => { const next = {...p}; const move = next[s].find(r => r.id === id); if(move){ next[s] = next[s].filter(r => r.id !== id); next[t] = [...next[t], move]; } return next; })} 
+            onAddNote={(text) => setNotes(prev => [{ id: Date.now().toString(), text, color: 'bg-yellow-100' }, ...prev])} 
+            onRemoveNote={(id) => setNotes(prev => prev.filter(n => n.id !== id))} 
+            onViewRecipe={handleOpenRecipeFromDashboard} 
+            onResetWeek={handleResetWeek}
+          />
+        )}
         {currentView === View.Recipes && <RecipeBook recipes={recipes} onRefresh={() => fetchData()} onAddRecipe={addRecipe} onUpdateRecipe={updateRecipe} onDeleteRecipe={deleteRecipe} hiddenIngredients={hiddenIngredients} onUpdateHidden={setHiddenIngredients} onAddManualShoppingItem={addManualItemFromRecipe} externalIdToOpen={externallySelectedRecipeId} onClearExternalId={() => setExternallySelectedRecipeId(null)} />}
         {currentView === View.ShoppingList && (
           <ShoppingList 
