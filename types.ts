@@ -11,9 +11,9 @@ export interface AuthState {
 }
 
 export interface Ingredient {
-  amount: string; // e.g. "1/2" or "1.5"
-  unit: string;   // e.g. "cup" or "g"
-  item: string;   // e.g. "Flour"
+  amount: string;
+  unit: string;
+  item: string;
 }
 
 export interface Instruction {
@@ -28,6 +28,8 @@ export interface Recipe {
   instructions: Instruction[];
   imageUrl: string;
   tags: string[];
+  isFavorite?: boolean; // New Field
+  isNew?: boolean;      // New Field
 }
 
 export type DayOfWeek = 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday';
