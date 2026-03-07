@@ -1,5 +1,4 @@
 // components/MealDay.tsx
-
 import React from 'react';
 import { Recipe } from '../types';
 
@@ -9,9 +8,10 @@ interface MealDayProps {
   onAdd: () => void;
   onRemove: (recipeId: string) => void;
   onDragDrop: (sourceDay: string, targetDay: string, recipeId: string) => void;
+  onViewMeal: (recipe: Recipe) => void; // Added this prop
 }
 
-const MealDay: React.FC<MealDayProps> = ({ day, meals, onAdd, onRemove, onDragDrop }) => {
+const MealDay: React.FC<MealDayProps> = ({ day, meals, onAdd, onRemove, onDragDrop, onViewMeal }) => {
   
   const handleDragStart = (e: React.DragEvent, recipeId: string) => {
     e.dataTransfer.setData('sourceDay', day);
@@ -68,7 +68,8 @@ const MealDay: React.FC<MealDayProps> = ({ day, meals, onAdd, onRemove, onDragDr
               key={meal.id}
               draggable 
               onDragStart={(e) => handleDragStart(e, meal.id)}
-              className="relative flex items-center gap-3 p-2 bg-slate-50 rounded-2xl border border-slate-100 group cursor-move hover:border-indigo-200 hover:shadow-md transition-all"
+              onClick={() => onViewMeal(meal)} // Added click handler to view recipe
+              className="relative flex items-center gap-3 p-2 bg-slate-50 rounded-2xl border border-slate-100 group cursor-pointer hover:border-indigo-200 hover:shadow-md transition-all"
             >
               <img src={meal.imageUrl} alt={meal.name} className="w-10 h-10 rounded-xl object-cover flex-shrink-0" />
               <div className="flex-1 min-w-0">
