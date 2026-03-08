@@ -352,7 +352,6 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
                           );
                         })}
                       </div>
-                      <p className="mt-4 text-[10px] text-slate-400 italic">Click an ingredient to globally exclude it from auto-lists. Use the + button to add it one-time to your manual list.</p>
                     </div>
 
                     <div className="xl:border-l xl:border-slate-100 xl:pl-12">
