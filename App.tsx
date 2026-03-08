@@ -249,6 +249,24 @@ const App: React.FC = () => {
     return () => clearTimeout(saveTimeout.current);
   }, [weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, auth.token, spreadsheetId, isTokenExpired]);
 
+  // RESTORED UPLOAD LOGIC
+  const uploadToDrive = async (file: File): Promise<string | null> => {
+    const freshToken = auth.token || localStorage.getItem('g_access_token');
+    if (!freshToken) return null;
+    try {
+      const metadata = { name: `recipe_${Date.now()}_${file.name}`, mimeType: file.type, parents: [ROOT_FOLDER_ID] };
+      const formData = new FormData();
+      formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+      formData.append('file', file);
+      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', { method: 'POST', headers: { Authorization: `Bearer ${freshToken}` }, body: formData });
+      if (!res.ok) throw new Error("Upload failed");
+      const data = await res.json();
+      // Ensure file permissions allow viewing
+      await fetch(`https://www.googleapis.com/drive/v3/files/${data.id}/permissions`, { method: 'POST', headers: { Authorization: `Bearer ${freshToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'reader', type: 'anyone' }) });
+      return `https://drive.google.com/thumbnail?id=${data.id}&sz=w800`;
+    } catch (err) { console.error("Drive upload failed", err); return null; }
+  };
+
   const saveAllRecipesToSheet = async (newRecipes: Recipe[]) => {
     setRecipes(newRecipes);
     if (!spreadsheetId || !auth.token) return;
@@ -263,20 +281,29 @@ const App: React.FC = () => {
         r.isFavorite ? 'TRUE' : 'FALSE',
         r.isNew ? 'TRUE' : 'FALSE'
       ]);
-      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:H:clear`, { method: 'POST', headers: { Authorization: `Bearer ${authToken}` } });
+      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:H:clear`, { method: 'POST', headers: { Authorization: `Bearer ${auth.token}` } });
       await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:H?valueInputOption=USER_ENTERED`, { method: 'PUT', headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ values }) });
     } catch (err) { console.error("Failed to save recipes", err); }
   };
 
   const addRecipe = async (recipe: Omit<Recipe, 'id'>, imageFile?: File) => {
     let finalImageUrl = recipe.imageUrl;
+    if (imageFile) {
+      const uploadedUrl = await uploadToDrive(imageFile);
+      if (uploadedUrl) finalImageUrl = uploadedUrl;
+    }
     const newRecipe = { ...recipe, imageUrl: finalImageUrl, id: Date.now().toString() };
     await saveAllRecipesToSheet([...recipes, newRecipe]);
     return true;
   };
 
   const updateRecipe = async (updatedRecipe: Recipe, imageFile?: File) => {
-    const newRecipes = recipes.map(r => r.id === updatedRecipe.id ? updatedRecipe : r);
+    let finalImageUrl = updatedRecipe.imageUrl;
+    if (imageFile) {
+      const uploadedUrl = await uploadToDrive(imageFile);
+      if (uploadedUrl) finalImageUrl = uploadedUrl;
+    }
+    const newRecipes = recipes.map(r => r.id === updatedRecipe.id ? { ...updatedRecipe, imageUrl: finalImageUrl } : r);
     await saveAllRecipesToSheet(newRecipes);
     return true;
   };
@@ -299,7 +326,6 @@ const App: React.FC = () => {
   };
 
   const addManualItemFromRecipe = (name: string) => {
-    // If the item was previously "cleared" (bought), un-clear it now that we're adding it manually
     const clean = name.toLowerCase().split('(')[0].trim();
     setClearedIngredients(prev => prev.filter(i => i !== clean));
     setManualItems(prev => [...prev, { id: Date.now().toString(), name: name, checked: false }]);
