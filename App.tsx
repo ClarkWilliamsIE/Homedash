@@ -1,7 +1,8 @@
 // App.tsx
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Recipe, CalendarEvent, WeeklyPlan, FamilyNote, Ingredient, Instruction } from './types';
-import { API_KEY, ICONS, ROOT_FOLDER_ID } from './constants';
+import { AuthState, View, Recipe, CalendarEvent, WeeklyPlan, FamilyNote, Ingredient, Instruction } from './types';
+import { CLIENT_ID, SCOPES, ICONS, ROOT_FOLDER_ID } from './constants';
 import Dashboard from './components/Dashboard';
 import RecipeBook from './components/RecipeBook';
 import ShoppingList from './components/ShoppingList';
@@ -18,154 +19,305 @@ export interface ManualItem {
 }
 
 const App: React.FC = () => {
-  // --- PERSISTENT SESSION STATE ---
-  // Replaces the Google OAuth 'auth' state with a permanent Sheet ID
-  const [spreadsheetId, setSpreadsheetId] = useState<string | null>(localStorage.getItem('family_sheet_id'));
-  const [isAuth, setIsAuth] = useState(!!localStorage.getItem('family_sheet_id'));
+  const [auth, setAuth] = useState<AuthState>({
+    token: localStorage.getItem('g_access_token'),
+    user: JSON.parse(localStorage.getItem('g_user') || 'null'),
+    isAuthenticated: !!localStorage.getItem('g_access_token')
+  });
 
-  // --- APPLICATION STATE (Preserved from original) ---
   const [currentView, setCurrentView] = useState<View>(View.Dashboard);
+  const [spreadsheetId, setSpreadsheetId] = useState<string | null>(localStorage.getItem('g_sheet_id'));
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan>(INITIAL_PLAN);
   const [notes, setNotes] = useState<FamilyNote[]>([]);
   const [manualItems, setManualItems] = useState<ManualItem[]>([]);
+  
+  // hiddenIngredients = Permanent Staples (Soy Sauce, Flour)
   const [hiddenIngredients, setHiddenIngredients] = useState<string[]>([]);
+  // clearedIngredients = Bought for this specific week
   const [clearedIngredients, setClearedIngredients] = useState<string[]>([]);
+  
   const [checkedIngredients, setCheckedIngredients] = useState<string[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  
   const [externallySelectedRecipeId, setExternallySelectedRecipeId] = useState<string | null>(null);
 
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [initStatus, setInitStatus] = useState<string>('');
+  const [isTokenExpired, setIsTokenExpired] = useState(false);
+
   const isInitialLoad = useRef(true);
   const saveTimeout = useRef<any>(null);
 
-  // --- NEW LOGIN LOGIC ---
-  const handleLogin = (id: string) => {
-    localStorage.setItem('family_sheet_id', id);
-    setSpreadsheetId(id);
-    setIsAuth(true);
-  };
-
-  const logout = () => {
-    if (confirm("Sign out? You will need your Spreadsheet ID to log back in.")) {
-      localStorage.removeItem('family_sheet_id');
-      setSpreadsheetId(null);
-      setIsAuth(false);
-      setRecipes([]);
+  const refreshSession = useCallback(async () => {
+    try {
+      const res = await fetch('/api/refresh');
+      if (res.ok) {
+        const data = await res.json();
+        localStorage.setItem('g_access_token', data.access_token);
+        setAuth(prev => ({ ...prev, token: data.access_token, isAuthenticated: true }));
+        setIsTokenExpired(false);
+        fetchUserInfo(data.access_token);
+        return data.access_token;
+      } else {
+        if (auth.isAuthenticated) setIsTokenExpired(true);
+      }
+    } catch (e) {
+      console.error("Harmony: Backend refresh failed", e);
     }
+    return null;
+  }, [auth.isAuthenticated]);
+
+  useEffect(() => {
+    refreshSession();
+    const interval = setInterval(refreshSession, 50 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [refreshSession]);
+
+  const login = () => {
+    const google = (window as any).google;
+    const client = google.accounts.oauth2.initCodeClient({
+      client_id: CLIENT_ID,
+      scope: SCOPES,
+      ux_mode: 'popup',
+      callback: async (response: any) => {
+        if (response.code) {
+          setInitStatus('Authenticating securely...');
+          try {
+            const res = await fetch('/api/auth', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ code: response.code })
+            });
+            const data = await res.json();
+            if (data.access_token) {
+              localStorage.setItem('g_access_token', data.access_token);
+              setAuth(prev => ({ ...prev, token: data.access_token, isAuthenticated: true }));
+              setIsTokenExpired(false);
+              setInitStatus('');
+              fetchUserInfo(data.access_token);
+              if (spreadsheetId) setTimeout(() => fetchData(data.access_token), 500);
+            }
+          } catch (err) {
+            setInitStatus('Authentication failed.');
+          }
+        }
+      },
+    });
+    client.requestCode();
   };
 
-  // --- DATA FETCHING (Using API Key for permanent access) ---
-  const fetchData = useCallback(async () => {
-    if (!spreadsheetId) return;
+  const logout = async () => {
+    await fetch('/api/logout');
+    localStorage.removeItem('g_access_token');
+    localStorage.removeItem('g_user');
+    localStorage.removeItem('g_sheet_id');
+    setAuth({ token: null, user: null, isAuthenticated: false });
+    setSpreadsheetId(null);
+    setRecipes([]);
+    setCurrentView(View.Dashboard);
+  };
+
+  const fetchUserInfo = async (token: string) => {
+    try {
+      const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return;
+      const user = await res.json();
+      const userData = { name: user.name, email: user.email, picture: user.picture };
+      localStorage.setItem('g_user', JSON.stringify(userData));
+      setAuth(prev => ({ ...prev, user: userData }));
+    } catch (err) { console.error(err); }
+  };
+
+  const initializeSystem = useCallback(async () => {
+    if (!auth.token || spreadsheetId) return;
+    setInitStatus('Connecting to Family Database...');
+    try {
+      const q = `name = 'FamilyHarmonyDB' and '${ROOT_FOLDER_ID}' in parents and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false`;
+      const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${auth.token}` } });
+      if (!searchRes.ok) { setIsTokenExpired(true); setInitStatus(''); return; }
+      
+      const searchData = await searchRes.json();
+      let finalSheetId = '';
+
+      if (searchData.files && searchData.files.length > 0) {
+        finalSheetId = searchData.files[0].id;
+        setInitStatus('Database found. Loading...');
+      } else {
+        setInitStatus('Creating new Database...');
+        const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'FamilyHarmonyDB', mimeType: 'application/vnd.google-apps.spreadsheet', parents: [ROOT_FOLDER_ID] })
+        });
+        const createData = await createRes.json();
+        if (!createData.id) return;
+        finalSheetId = createData.id;
+        await initializeSheetHeaders(finalSheetId, auth.token);
+      }
+      if (finalSheetId) {
+          localStorage.setItem('g_sheet_id', finalSheetId);
+          setSpreadsheetId(finalSheetId);
+      }
+    } catch (err) { console.error("Init failed", err); } finally { if (spreadsheetId) setInitStatus(''); }
+  }, [auth.token, spreadsheetId]);
+
+  const initializeSheetHeaders = async (id: string, token: string) => {
+    const requests = [{ addSheet: { properties: { title: "Recipes" } } }, { addSheet: { properties: { title: "ShoppingList" } } }, { addSheet: { properties: { title: "SyncData" } } }];
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}:batchUpdate`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ requests }) });
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Recipes!A1:H1?valueInputOption=USER_ENTERED`, { method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ values: [['Name', 'Ingredients', 'ImageURL', 'Tags', 'Instructions', 'ID', 'isFavorite', 'isNew']] }) });
+  };
+
+  const fetchData = useCallback(async (overrideToken?: string) => {
+    const activeToken = overrideToken || auth.token;
+    if (!activeToken || !spreadsheetId) return;
+    
     setIsLoading(true);
     try {
-      // 1. Fetch Recipes
-      const recRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:H?key=${API_KEY}`);
-      const recData = await recRes.json();
-      if (recData.values) {
-        setRecipes(recData.values.map((row: any, idx: number) => ({
-          id: row[5] || idx.toString(), 
-          name: row[0], 
-          ingredients: JSON.parse(row[1] || '[]'), 
-          instructions: JSON.parse(row[4] || '[]'),
-          imageUrl: row[2] || `https://picsum.photos/seed/${idx}/400/300`,
-          tags: row[3]?.split(',').map((s: string) => s.trim()) || [],
-          isFavorite: row[6] === 'TRUE',
-          isNew: row[7] === 'TRUE'
-        })));
+      const sheetRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:H`, { headers: { Authorization: `Bearer ${activeToken}` } });
+      if (sheetRes.status === 401) { setIsTokenExpired(true); setIsLoading(false); return; }
+
+      const sheetData = await sheetRes.json();
+      if (sheetData.values) {
+        const parsedRecipes: Recipe[] = sheetData.values.map((row: any, idx: number) => {
+          let ingredients: Ingredient[] = [];
+          try { ingredients = JSON.parse(row[1]); } catch { ingredients = []; }
+          let instructions: Instruction[] = [];
+          try { instructions = JSON.parse(row[4]); } catch { instructions = []; }
+
+          return {
+            id: row[5] || idx.toString(), 
+            name: row[0], 
+            ingredients, 
+            instructions,
+            imageUrl: row[2] || `https://picsum.photos/seed/${idx}/400/300`,
+            tags: row[3]?.split(',').map((s: string) => s.trim()) || [],
+            isFavorite: row[6] === 'TRUE',
+            isNew: row[7] === 'TRUE'
+          };
+        });
+        setRecipes(parsedRecipes);
       }
 
-      // 2. Fetch SyncData (Weekly Plan, Notes, etc.)
-      const syncRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SyncData!A1?key=${API_KEY}`);
+      const syncRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SyncData!A1?valueRenderOption=UNFORMATTED_VALUE`, { headers: { Authorization: `Bearer ${activeToken}` } });
       const syncData = await syncRes.json();
-      if (syncData.values?.[0]?.[0]) {
-        const appState = JSON.parse(syncData.values[0][0]);
-        if (appState.weeklyPlan) setWeeklyPlan(appState.weeklyPlan);
-        if (appState.notes) setNotes(appState.notes);
-        if (appState.manualItems) setManualItems(appState.manualItems);
-        if (appState.hiddenIngredients) setHiddenIngredients(appState.hiddenIngredients);
-        if (appState.clearedIngredients) setClearedIngredients(appState.clearedIngredients);
-        if (appState.checkedIngredients) setCheckedIngredients(appState.checkedIngredients);
+      if (syncData.values && syncData.values[0] && syncData.values[0][0]) {
+        try {
+          const appState = JSON.parse(syncData.values[0][0]);
+          if (appState.weeklyPlan) setWeeklyPlan(appState.weeklyPlan);
+          if (appState.notes) setNotes(appState.notes);
+          if (appState.manualItems) setManualItems(appState.manualItems);
+          if (appState.hiddenIngredients) setHiddenIngredients(appState.hiddenIngredients);
+          if (appState.clearedIngredients) setClearedIngredients(appState.clearedIngredients);
+          if (appState.checkedIngredients) setCheckedIngredients(appState.checkedIngredients);
+        } catch (e) { console.error("Failed to parse SyncData", e); }
       }
       
-      // 3. Fetch Calendar from Sheet
-      const calRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Calendar!A2:C?key=${API_KEY}`);
-      const calData = await calRes.json();
-      if (calData.values) {
-        setCalendarEvents(calData.values.map((row: any) => ({
-          id: row[2], summary: row[0], start: { date: row[1] }, end: { date: row[1] }
-        })));
-      }
-    } catch (err) { console.error("Data fetch failed", err); }
-    finally { setIsLoading(false); setTimeout(() => { isInitialLoad.current = false; }, 1000); }
-  }, [spreadsheetId]);
+      const now = new Date(); now.setHours(0,0,0,0);
+      const calendarRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${now.toISOString()}&maxResults=50&orderBy=startTime&singleEvents=true`, { headers: { Authorization: `Bearer ${activeToken}` } });
+      const calendarData = await calendarRes.json();
+      setCalendarEvents(calendarData.items || []);
 
-  useEffect(() => { if (isAuth) fetchData(); }, [isAuth, fetchData]);
+    } catch (err) { console.error(err); } finally { setIsLoading(false); setTimeout(() => { isInitialLoad.current = false; }, 1000); }
+  }, [auth.token, spreadsheetId]);
 
-  // --- BACKGROUND SYNCING (Using /api/data proxy) ---
   useEffect(() => {
-    if (!isAuth || isInitialLoad.current || !spreadsheetId) return;
+    if (auth.isAuthenticated && !spreadsheetId) initializeSystem();
+    else if (auth.isAuthenticated && spreadsheetId && !isTokenExpired) fetchData();
+  }, [auth.isAuthenticated, spreadsheetId, initializeSystem, fetchData, isTokenExpired]);
+
+  useEffect(() => {
+    if (!auth.token || isInitialLoad.current || !spreadsheetId || isTokenExpired) return;
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
     saveTimeout.current = setTimeout(async () => {
       setIsSyncing(true);
       try {
         const payload = JSON.stringify({ 
-          weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients 
+          weeklyPlan, 
+          notes, 
+          manualItems, 
+          hiddenIngredients, 
+          clearedIngredients, 
+          checkedIngredients 
         });
-        await fetch('/api/data', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ spreadsheetId, range: 'SyncData!A1', values: [[payload]] })
+        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SyncData!A1?valueInputOption=USER_ENTERED`, {
+          method: 'PUT', headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ values: [[payload]] })
         });
-      } catch (err) { console.error("Sync failed", err); }
-      finally { setIsSyncing(false); }
+      } catch (err) { console.error("Failed to sync state", err); } finally { setIsSyncing(false); }
     }, 2000);
     return () => clearTimeout(saveTimeout.current);
-  }, [weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, isAuth, spreadsheetId]);
+  }, [weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, auth.token, spreadsheetId, isTokenExpired]);
 
-  // --- RECIPE MANAGEMENT (Preserved logic) ---
-  const saveAllRecipesToSheet = async (newRecipes: Recipe[]) => {
-    setRecipes(newRecipes);
-    if (!spreadsheetId) return;
+  // RESTORED UPLOAD LOGIC
+  const uploadToDrive = async (file: File): Promise<string | null> => {
+    const freshToken = auth.token || localStorage.getItem('g_access_token');
+    if (!freshToken) return null;
     try {
-      const values = newRecipes.map(r => [
-        r.name, JSON.stringify(r.ingredients), r.imageUrl, 
-        r.tags.join(', '), JSON.stringify(r.instructions), r.id,
-        r.isFavorite ? 'TRUE' : 'FALSE', r.isNew ? 'TRUE' : 'FALSE'
-      ]);
-      await fetch('/api/data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ spreadsheetId, range: 'Recipes!A2:H', values, clear: true })
-      });
-    } catch (err) { console.error("Save recipes failed", err); }
+      const metadata = { name: `recipe_${Date.now()}_${file.name}`, mimeType: file.type, parents: [ROOT_FOLDER_ID] };
+      const formData = new FormData();
+      formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+      formData.append('file', file);
+      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', { method: 'POST', headers: { Authorization: `Bearer ${freshToken}` }, body: formData });
+      if (!res.ok) throw new Error("Upload failed");
+      const data = await res.json();
+      // Ensure file permissions allow viewing
+      await fetch(`https://www.googleapis.com/drive/v3/files/${data.id}/permissions`, { method: 'POST', headers: { Authorization: `Bearer ${freshToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'reader', type: 'anyone' }) });
+      return `https://drive.google.com/thumbnail?id=${data.id}&sz=w800`;
+    } catch (err) { console.error("Drive upload failed", err); return null; }
   };
 
-  const addRecipe = async (recipe: Omit<Recipe, 'id'>) => {
-    const newRecipe = { ...recipe, id: Date.now().toString() };
+  const saveAllRecipesToSheet = async (newRecipes: Recipe[]) => {
+    setRecipes(newRecipes);
+    if (!spreadsheetId || !auth.token) return;
+    try {
+      const values = newRecipes.map(r => [
+        r.name, 
+        JSON.stringify(r.ingredients), 
+        r.imageUrl, 
+        r.tags.join(', '), 
+        JSON.stringify(r.instructions), 
+        r.id,
+        r.isFavorite ? 'TRUE' : 'FALSE',
+        r.isNew ? 'TRUE' : 'FALSE'
+      ]);
+      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:H:clear`, { method: 'POST', headers: { Authorization: `Bearer ${auth.token}` } });
+      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Recipes!A2:H?valueInputOption=USER_ENTERED`, { method: 'PUT', headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ values }) });
+    } catch (err) { console.error("Failed to save recipes", err); }
+  };
+
+  const addRecipe = async (recipe: Omit<Recipe, 'id'>, imageFile?: File) => {
+    let finalImageUrl = recipe.imageUrl;
+    if (imageFile) {
+      const uploadedUrl = await uploadToDrive(imageFile);
+      if (uploadedUrl) finalImageUrl = uploadedUrl;
+    }
+    const newRecipe = { ...recipe, imageUrl: finalImageUrl, id: Date.now().toString() };
     await saveAllRecipesToSheet([...recipes, newRecipe]);
     return true;
   };
 
-  const updateRecipe = async (updatedRecipe: Recipe) => {
-    const newRecipes = recipes.map(r => r.id === updatedRecipe.id ? updatedRecipe : r);
+  const updateRecipe = async (updatedRecipe: Recipe, imageFile?: File) => {
+    let finalImageUrl = updatedRecipe.imageUrl;
+    if (imageFile) {
+      const uploadedUrl = await uploadToDrive(imageFile);
+      if (uploadedUrl) finalImageUrl = uploadedUrl;
+    }
+    const newRecipes = recipes.map(r => r.id === updatedRecipe.id ? { ...updatedRecipe, imageUrl: finalImageUrl } : r);
     await saveAllRecipesToSheet(newRecipes);
     return true;
   };
 
   const deleteRecipe = async (id: string) => {
-    if (confirm("Delete this recipe?")) {
+    if (confirm("Are you sure you want to delete this recipe?")) {
       await saveAllRecipesToSheet(recipes.filter(r => r.id !== id));
       return true;
     }
     return false;
   };
 
-  // --- UTILITY HANDLERS (Preserved logic) ---
   const handleResetWeek = () => {
-    if (confirm("Reset the week and shopping list?")) {
+    if (confirm("Clear the entire meal plan and reset the shopping list for a new week?")) {
       setWeeklyPlan(INITIAL_PLAN);
       setClearedIngredients([]);
       setCheckedIngredients([]);
@@ -176,7 +328,16 @@ const App: React.FC = () => {
   const addManualItemFromRecipe = (name: string) => {
     const clean = name.toLowerCase().split('(')[0].trim();
     setClearedIngredients(prev => prev.filter(i => i !== clean));
-    setManualItems(prev => [...prev, { id: Date.now().toString(), name, checked: false }]);
+    setManualItems(prev => [...prev, { id: Date.now().toString(), name: name, checked: false }]);
+  };
+  
+  const addEvent = async (event: { summary: string; start: string; allDay: boolean }) => {
+    try {
+      const body = { summary: event.summary, start: { date: event.start }, end: { date: event.start } };
+      const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', { method: 'POST', headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (res.ok) { fetchData(); return true; } 
+    } catch (err) { console.error(err); }
+    return false;
   };
 
   const handleOpenRecipeFromDashboard = (recipe: Recipe) => {
@@ -184,107 +345,93 @@ const App: React.FC = () => {
     setCurrentView(View.Recipes);
   };
 
-  // --- RENDER LOGIN SCREEN ---
-  if (!isAuth) {
+  if (!auth.isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
         <div className="bg-white rounded-[2.5rem] shadow-xl p-12 max-w-md w-full text-center space-y-8">
           <div className="w-20 h-20 bg-indigo-600 rounded-3xl mx-auto flex items-center justify-center text-white shadow-lg"><ICONS.Dashboard /></div>
-          <div>
-            <h1 className="text-3xl font-black text-slate-900 tracking-tight">Family Harmony</h1>
-            <p className="text-slate-500 mt-2">Enter your Family ID to access your dashboard.</p>
-          </div>
-          <input 
-            type="text" 
-            placeholder="Paste Spreadsheet ID here..." 
-            className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-50 transition-all text-center font-mono text-sm"
-            onKeyDown={(e) => e.key === 'Enter' && handleLogin((e.target as HTMLInputElement).value)}
-          />
-          <p className="text-[10px] text-slate-400 leading-relaxed uppercase tracking-widest">Found in your Google Sheet URL</p>
+          <div><h1 className="text-3xl font-black text-slate-900 tracking-tight">Family Harmony</h1><p className="text-slate-500 mt-2">Sign in to sync your family's life.</p></div>
+          <button onClick={login} className="w-full flex items-center justify-center gap-3 bg-slate-900 text-white py-4 rounded-2xl font-bold hover:bg-slate-800 transition-all shadow-lg">Sign in with Google</button>
         </div>
       </div>
     );
   }
 
-  // --- RENDER DASHBOARD ---
+  if (initStatus) {
+    return (
+       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
+          <div className="animate-spin w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full mb-4"></div>
+          <p className="text-slate-600 font-bold animate-pulse">{initStatus}</p>
+       </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col md:flex-row min-h-screen">
+    <div className="flex flex-col md:flex-row min-h-screen relative">
+      {isTokenExpired && (
+        <div className="absolute inset-0 z-[200] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="bg-white rounded-[2rem] shadow-2xl p-10 max-w-md w-full text-center space-y-6">
+            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full mx-auto flex items-center justify-center">
+               <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            </div>
+            <div>
+              <h2 className="text-2xl font-black text-slate-900">Session Expired</h2>
+              <p className="text-slate-500 mt-2">Please log in again to reconnect securely.</p>
+            </div>
+            <button onClick={login} className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition-all">Reconnect</button>
+          </div>
+        </div>
+      )}
+
       <nav className="w-full md:w-64 bg-white border-r border-slate-200 flex flex-col p-6 gap-8">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-indigo-600 p-2 rounded-lg text-white"><ICONS.Dashboard /></div>
-            <span className="text-xl font-bold tracking-tight">Harmony</span>
-          </div>
+          <div className="flex items-center gap-3"><div className="bg-indigo-600 p-2 rounded-lg text-white"><ICONS.Dashboard /></div><span className="text-xl font-bold tracking-tight">Harmony</span></div>
           {(isSyncing || isLoading) && <div className="animate-spin w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full"></div>}
         </div>
         <div className="space-y-1 flex-1">
-          {[
-            { id: View.Dashboard, label: 'Dashboard', icon: <ICONS.Dashboard /> },
-            { id: View.Calendar, label: 'Full Calendar', icon: <ICONS.Calendar /> },
-            { id: View.Recipes, label: 'Recipe Book', icon: <ICONS.Recipes /> },
-            { id: View.ShoppingList, label: 'Shopping List', icon: <ICONS.Shopping /> }
-          ].map((item) => (
-            <button 
-              key={item.id} 
-              onClick={() => setCurrentView(item.id)} 
-              className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${currentView === item.id ? 'bg-indigo-50 text-indigo-600 font-bold shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
-            >
-              {item.icon}{item.label}
-            </button>
+          {[{ id: View.Dashboard, label: 'Dashboard', icon: <ICONS.Dashboard /> }, { id: View.Calendar, label: 'Full Calendar', icon: <ICONS.Calendar /> }, { id: View.Recipes, label: 'Recipe Book', icon: <ICONS.Recipes /> }, { id: View.ShoppingList, label: 'Shopping List', icon: <ICONS.Shopping /> }].map((item) => (
+            <button key={item.id} onClick={() => setCurrentView(item.id)} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${currentView === item.id ? 'bg-indigo-50 text-indigo-600 font-bold shadow-sm' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}>{item.icon}{item.label}</button>
           ))}
         </div>
-        <div className="pt-6 border-t border-slate-100">
-          <button onClick={logout} className="w-full py-3 text-xs font-bold text-slate-400 hover:text-red-600 transition-colors uppercase tracking-widest">Switch Account</button>
+        <div className="pt-6 border-t border-slate-100 space-y-4">
+          <div className="flex items-center gap-3 px-2"><img src={auth.user?.picture} className="w-10 h-10 rounded-full border border-slate-200" alt="Avatar" /><div className="flex-1 overflow-hidden"><p className="text-sm font-semibold text-slate-900 truncate">{auth.user?.name}</p><p className="text-xs text-slate-500 truncate">{auth.user?.email}</p></div></div>
+          <button onClick={logout} className="w-full flex items-center justify-center gap-2 py-2 text-sm text-slate-400 hover:text-red-600 transition-colors">Sign Out</button>
         </div>
       </nav>
 
       <main className="flex-1 bg-slate-50 p-4 md:p-10 overflow-y-auto">
         {currentView === View.Dashboard && (
           <Dashboard 
-            events={calendarEvents} weeklyPlan={weeklyPlan} recipes={recipes} notes={notes}
-            onAddMeal={(d, r) => setWeeklyPlan(p => ({...p, [d]: [...(p[d]||[]), r]}))}
-            onRemoveMeal={(d, id) => setWeeklyPlan(p => ({...p, [d]: p[d].filter(r => r.id !== id)}))}
-            onMoveMeal={(s, t, id) => setWeeklyPlan(p => { 
-              const next = {...p}; 
-              const move = next[s].find(r => r.id === id); 
-              if(move){ next[s] = next[s].filter(r => r.id !== id); next[t] = [...next[t], move]; } 
-              return next; 
-            })}
-            onAddNote={(text) => setNotes(prev => [{ id: Date.now().toString(), text, color: 'bg-yellow-100' }, ...prev])}
-            onRemoveNote={(id) => setNotes(prev => prev.filter(n => n.id !== id))}
-            onViewRecipe={handleOpenRecipeFromDashboard}
+            events={calendarEvents} 
+            weeklyPlan={weeklyPlan} 
+            recipes={recipes} 
+            notes={notes} 
+            onAddMeal={(d, r) => setWeeklyPlan(p => ({...p, [d]: [...(p[d]||[]), r]}))} 
+            onRemoveMeal={(d, id) => setWeeklyPlan(p => ({...p, [d]: p[d].filter(r => r.id !== id)}))} 
+            onMoveMeal={(s, t, id) => setWeeklyPlan(p => { const next = {...p}; const move = next[s].find(r => r.id === id); if(move){ next[s] = next[s].filter(r => r.id !== id); next[t] = [...next[t], move]; } return next; })} 
+            onAddNote={(text) => setNotes(prev => [{ id: Date.now().toString(), text, color: 'bg-yellow-100' }, ...prev])} 
+            onRemoveNote={(id) => setNotes(prev => prev.filter(n => n.id !== id))} 
+            onViewRecipe={handleOpenRecipeFromDashboard} 
             onResetWeek={handleResetWeek}
           />
         )}
-        {currentView === View.Recipes && (
-          <RecipeBook 
-            recipes={recipes} onRefresh={fetchData} onAddRecipe={addRecipe} onUpdateRecipe={updateRecipe} onDeleteRecipe={deleteRecipe}
-            hiddenIngredients={hiddenIngredients} onUpdateHidden={setHiddenIngredients} onAddManualShoppingItem={addManualItemFromRecipe}
-            externalIdToOpen={externallySelectedRecipeId} onClearExternalId={() => setExternallySelectedRecipeId(null)}
-          />
-        )}
+        {currentView === View.Recipes && <RecipeBook recipes={recipes} onRefresh={() => fetchData()} onAddRecipe={addRecipe} onUpdateRecipe={updateRecipe} onDeleteRecipe={deleteRecipe} hiddenIngredients={hiddenIngredients} onUpdateHidden={setHiddenIngredients} onAddManualShoppingItem={addManualItemFromRecipe} externalIdToOpen={externallySelectedRecipeId} onClearExternalId={() => setExternallySelectedRecipeId(null)} />}
         {currentView === View.ShoppingList && (
           <ShoppingList 
-            weeklyPlan={weeklyPlan} spreadsheetId={spreadsheetId} manualItems={manualItems} onUpdateItems={setManualItems}
-            hiddenIngredients={hiddenIngredients} onUpdateHidden={setHiddenIngredients} clearedIngredients={clearedIngredients}
-            onUpdateCleared={setClearedIngredients} checkedIngredients={checkedIngredients} onUpdateChecked={setCheckedIngredients}
-            authToken={null}
+            weeklyPlan={weeklyPlan} 
+            authToken={auth.token} 
+            spreadsheetId={spreadsheetId} 
+            manualItems={manualItems} 
+            onUpdateItems={setManualItems} 
+            hiddenIngredients={hiddenIngredients} 
+            onUpdateHidden={setHiddenIngredients} 
+            clearedIngredients={clearedIngredients}
+            onUpdateCleared={setClearedIngredients}
+            checkedIngredients={checkedIngredients} 
+            onUpdateChecked={setCheckedIngredients} 
           />
         )}
-        {currentView === View.Calendar && (
-          <CalendarView 
-            events={calendarEvents} 
-            onAddEvent={async (e) => {
-              const res = await fetch('/api/data', { 
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json' }, 
-                body: JSON.stringify({ spreadsheetId, range: 'Calendar!A:C', values: [[e.summary, e.start, Date.now().toString()]], append: true }) 
-              });
-              if (res.ok) { fetchData(); return true; } 
-              return false;
-            }} 
-          />
-        )}
+        {currentView === View.Calendar && <CalendarView events={calendarEvents} onAddEvent={addEvent} />}
       </main>
     </div>
   );
