@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AuthState, View, Recipe, CalendarEvent, WeeklyPlan, FamilyNote, Ingredient, Instruction } from './types';
-import { CLIENT_ID, SCOPES, ICONS, ROOT_FOLDER_ID } from './constants';
+import { ICONS, ROOT_FOLDER_ID } from './constants';
 import Dashboard from './components/Dashboard';
 import RecipeBook from './components/RecipeBook';
 import ShoppingList from './components/ShoppingList';
@@ -18,28 +18,29 @@ export interface ManualItem {
   checked: boolean;
 }
 
+// HARDCODED DATABASE
+const HARDCODED_SHEET_ID = '1IwqSELEbCQPAzM9-o5d1g4lXuuGzcev7F1kJeFjpihQ';
+
 const App: React.FC = () => {
   const [auth, setAuth] = useState<AuthState>({
-    token: localStorage.getItem('g_access_token'),
-    user: JSON.parse(localStorage.getItem('g_user') || 'null'),
-    isAuthenticated: !!localStorage.getItem('g_access_token')
+    token: null,
+    user: { name: 'Family Member', email: '', picture: 'https://cdn-icons-png.flaticon.com/512/3237/3237472.png' },
+    isAuthenticated: false
   });
 
   const [currentView, setCurrentView] = useState<View>(View.Dashboard);
-  const [spreadsheetId, setSpreadsheetId] = useState<string | null>(localStorage.getItem('g_sheet_id'));
+  const [spreadsheetId] = useState<string>(HARDCODED_SHEET_ID);
+  
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan>(INITIAL_PLAN);
   const [notes, setNotes] = useState<FamilyNote[]>([]);
   const [manualItems, setManualItems] = useState<ManualItem[]>([]);
   
-  // hiddenIngredients = Permanent Staples (Soy Sauce, Flour)
   const [hiddenIngredients, setHiddenIngredients] = useState<string[]>([]);
-  // clearedIngredients = Bought for this specific week
   const [clearedIngredients, setClearedIngredients] = useState<string[]>([]);
-  
   const [checkedIngredients, setCheckedIngredients] = useState<string[]>([]);
-  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [externallySelectedRecipeId, setExternallySelectedRecipeId] = useState<string | null>(null);
 
   const [isLoading, setIsLoading] = useState(false);
@@ -50,124 +51,41 @@ const App: React.FC = () => {
   const isInitialLoad = useRef(true);
   const saveTimeout = useRef<any>(null);
 
-  const refreshSession = useCallback(async () => {
+  // SILENT LOGIN REPLACES THE OLD POPUP AUTH
+  const loginSilently = useCallback(async () => {
+    setInitStatus('Connecting securely to Family Database...');
     try {
-      const res = await fetch('/api/refresh');
-      if (res.ok) {
-        const data = await res.json();
-        localStorage.setItem('g_access_token', data.access_token);
-        setAuth(prev => ({ ...prev, token: data.access_token, isAuthenticated: true }));
+      const res = await fetch('/api/getToken');
+      const data = await res.json();
+      
+      if (data.access_token) {
+        setAuth({ 
+          token: data.access_token, 
+          user: { name: 'Family Member', email: 'Shared Access', picture: 'https://cdn-icons-png.flaticon.com/512/3237/3237472.png' }, 
+          isAuthenticated: true 
+        });
         setIsTokenExpired(false);
-        fetchUserInfo(data.access_token);
+        setInitStatus('');
         return data.access_token;
       } else {
-        if (auth.isAuthenticated) setIsTokenExpired(true);
+        setInitStatus('Failed to connect. Please refresh.');
       }
     } catch (e) {
-      console.error("Harmony: Backend refresh failed", e);
+      setInitStatus('Server error. Please refresh.');
+      console.error("Harmony: Silent auth failed", e);
     }
     return null;
-  }, [auth.isAuthenticated]);
+  }, []);
 
+  // AUTO-LOGIN ON LOAD & REFRESH TOKEN EVERY 45 MINS
   useEffect(() => {
-    refreshSession();
-    const interval = setInterval(refreshSession, 50 * 60 * 1000);
+    if (!auth.isAuthenticated) {
+      loginSilently();
+    }
+    const interval = setInterval(loginSilently, 45 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [refreshSession]);
+  }, [auth.isAuthenticated, loginSilently]);
 
-  const login = () => {
-    const google = (window as any).google;
-    const client = google.accounts.oauth2.initCodeClient({
-      client_id: CLIENT_ID,
-      scope: SCOPES,
-      ux_mode: 'popup',
-      callback: async (response: any) => {
-        if (response.code) {
-          setInitStatus('Authenticating securely...');
-          try {
-            const res = await fetch('/api/auth', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ code: response.code })
-            });
-            const data = await res.json();
-            if (data.access_token) {
-              localStorage.setItem('g_access_token', data.access_token);
-              setAuth(prev => ({ ...prev, token: data.access_token, isAuthenticated: true }));
-              setIsTokenExpired(false);
-              setInitStatus('');
-              fetchUserInfo(data.access_token);
-              if (spreadsheetId) setTimeout(() => fetchData(data.access_token), 500);
-            }
-          } catch (err) {
-            setInitStatus('Authentication failed.');
-          }
-        }
-      },
-    });
-    client.requestCode();
-  };
-
-  const logout = async () => {
-    await fetch('/api/logout');
-    localStorage.removeItem('g_access_token');
-    localStorage.removeItem('g_user');
-    localStorage.removeItem('g_sheet_id');
-    setAuth({ token: null, user: null, isAuthenticated: false });
-    setSpreadsheetId(null);
-    setRecipes([]);
-    setCurrentView(View.Dashboard);
-  };
-
-  const fetchUserInfo = async (token: string) => {
-    try {
-      const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) return;
-      const user = await res.json();
-      const userData = { name: user.name, email: user.email, picture: user.picture };
-      localStorage.setItem('g_user', JSON.stringify(userData));
-      setAuth(prev => ({ ...prev, user: userData }));
-    } catch (err) { console.error(err); }
-  };
-
-  const initializeSystem = useCallback(async () => {
-    if (!auth.token || spreadsheetId) return;
-    setInitStatus('Connecting to Family Database...');
-    try {
-      const q = `name = 'FamilyHarmonyDB' and '${ROOT_FOLDER_ID}' in parents and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false`;
-      const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${auth.token}` } });
-      if (!searchRes.ok) { setIsTokenExpired(true); setInitStatus(''); return; }
-      
-      const searchData = await searchRes.json();
-      let finalSheetId = '';
-
-      if (searchData.files && searchData.files.length > 0) {
-        finalSheetId = searchData.files[0].id;
-        setInitStatus('Database found. Loading...');
-      } else {
-        setInitStatus('Creating new Database...');
-        const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: 'FamilyHarmonyDB', mimeType: 'application/vnd.google-apps.spreadsheet', parents: [ROOT_FOLDER_ID] })
-        });
-        const createData = await createRes.json();
-        if (!createData.id) return;
-        finalSheetId = createData.id;
-        await initializeSheetHeaders(finalSheetId, auth.token);
-      }
-      if (finalSheetId) {
-          localStorage.setItem('g_sheet_id', finalSheetId);
-          setSpreadsheetId(finalSheetId);
-      }
-    } catch (err) { console.error("Init failed", err); } finally { if (spreadsheetId) setInitStatus(''); }
-  }, [auth.token, spreadsheetId]);
-
-  const initializeSheetHeaders = async (id: string, token: string) => {
-    const requests = [{ addSheet: { properties: { title: "Recipes" } } }, { addSheet: { properties: { title: "ShoppingList" } } }, { addSheet: { properties: { title: "SyncData" } } }];
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}:batchUpdate`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ requests }) });
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Recipes!A1:H1?valueInputOption=USER_ENTERED`, { method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ values: [['Name', 'Ingredients', 'ImageURL', 'Tags', 'Instructions', 'ID', 'isFavorite', 'isNew']] }) });
-  };
 
   const fetchData = useCallback(async (overrideToken?: string) => {
     const activeToken = overrideToken || auth.token;
@@ -214,19 +132,20 @@ const App: React.FC = () => {
         } catch (e) { console.error("Failed to parse SyncData", e); }
       }
       
-      const now = new Date(); now.setHours(0,0,0,0);
-      const calendarRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${now.toISOString()}&maxResults=50&orderBy=startTime&singleEvents=true`, { headers: { Authorization: `Bearer ${activeToken}` } });
-      const calendarData = await calendarRes.json();
-      setCalendarEvents(calendarData.items || []);
+      // Removed the Calendar fetch logic here since calendar scope is dropped
+      setCalendarEvents([]);
 
     } catch (err) { console.error(err); } finally { setIsLoading(false); setTimeout(() => { isInitialLoad.current = false; }, 1000); }
   }, [auth.token, spreadsheetId]);
 
+  // ONCE AUTHENTICATED, FETCH DATA
   useEffect(() => {
-    if (auth.isAuthenticated && !spreadsheetId) initializeSystem();
-    else if (auth.isAuthenticated && spreadsheetId && !isTokenExpired) fetchData();
-  }, [auth.isAuthenticated, spreadsheetId, initializeSystem, fetchData, isTokenExpired]);
+    if (auth.isAuthenticated && spreadsheetId && !isTokenExpired) {
+      fetchData();
+    }
+  }, [auth.isAuthenticated, spreadsheetId, fetchData, isTokenExpired]);
 
+  // AUTO SAVE CHANGES TO SHEET
   useEffect(() => {
     if (!auth.token || isInitialLoad.current || !spreadsheetId || isTokenExpired) return;
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
@@ -249,20 +168,19 @@ const App: React.FC = () => {
     return () => clearTimeout(saveTimeout.current);
   }, [weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, auth.token, spreadsheetId, isTokenExpired]);
 
-  // RESTORED UPLOAD LOGIC
+  // UPLOAD IMAGES
   const uploadToDrive = async (file: File): Promise<string | null> => {
-    const freshToken = auth.token || localStorage.getItem('g_access_token');
-    if (!freshToken) return null;
+    if (!auth.token) return null;
     try {
       const metadata = { name: `recipe_${Date.now()}_${file.name}`, mimeType: file.type, parents: [ROOT_FOLDER_ID] };
       const formData = new FormData();
       formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
       formData.append('file', file);
-      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', { method: 'POST', headers: { Authorization: `Bearer ${freshToken}` }, body: formData });
+      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', { method: 'POST', headers: { Authorization: `Bearer ${auth.token}` }, body: formData });
       if (!res.ok) throw new Error("Upload failed");
       const data = await res.json();
       // Ensure file permissions allow viewing
-      await fetch(`https://www.googleapis.com/drive/v3/files/${data.id}/permissions`, { method: 'POST', headers: { Authorization: `Bearer ${freshToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'reader', type: 'anyone' }) });
+      await fetch(`https://www.googleapis.com/drive/v3/files/${data.id}/permissions`, { method: 'POST', headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'reader', type: 'anyone' }) });
       return `https://drive.google.com/thumbnail?id=${data.id}&sz=w800`;
     } catch (err) { console.error("Drive upload failed", err); return null; }
   };
@@ -330,44 +248,25 @@ const App: React.FC = () => {
     setClearedIngredients(prev => prev.filter(i => i !== clean));
     setManualItems(prev => [...prev, { id: Date.now().toString(), name: name, checked: false }]);
   };
-  
-  const addEvent = async (event: { summary: string; start: string; allDay: boolean }) => {
-    try {
-      const body = { summary: event.summary, start: { date: event.start }, end: { date: event.start } };
-      const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', { method: 'POST', headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      if (res.ok) { fetchData(); return true; } 
-    } catch (err) { console.error(err); }
-    return false;
-  };
 
   const handleOpenRecipeFromDashboard = (recipe: Recipe) => {
     setExternallySelectedRecipeId(recipe.id);
     setCurrentView(View.Recipes);
   };
 
+  // NEW: LOADING SCREEN REPLACES GOOGLE SIGN-IN BUTTON
   if (!auth.isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
-        <div className="bg-white rounded-[2.5rem] shadow-xl p-12 max-w-md w-full text-center space-y-8">
-          <div className="w-20 h-20 bg-indigo-600 rounded-3xl mx-auto flex items-center justify-center text-white shadow-lg"><ICONS.Dashboard /></div>
-          <div><h1 className="text-3xl font-black text-slate-900 tracking-tight">Family Harmony</h1><p className="text-slate-500 mt-2">Sign in to sync your family's life.</p></div>
-          <button onClick={login} className="w-full flex items-center justify-center gap-3 bg-slate-900 text-white py-4 rounded-2xl font-bold hover:bg-slate-800 transition-all shadow-lg">Sign in with Google</button>
-        </div>
-      </div>
-    );
-  }
-
-  if (initStatus) {
     return (
        <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
           <div className="animate-spin w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full mb-4"></div>
-          <p className="text-slate-600 font-bold animate-pulse">{initStatus}</p>
+          <p className="text-slate-600 font-bold animate-pulse">{initStatus || 'Opening Dashboard...'}</p>
        </div>
     );
   }
 
   return (
     <div className="flex flex-col md:flex-row min-h-screen relative">
+      {/* If token drops mid-use, prompt a quick refresh instead of full sign-in */}
       {isTokenExpired && (
         <div className="absolute inset-0 z-[200] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6">
           <div className="bg-white rounded-[2rem] shadow-2xl p-10 max-w-md w-full text-center space-y-6">
@@ -376,9 +275,9 @@ const App: React.FC = () => {
             </div>
             <div>
               <h2 className="text-2xl font-black text-slate-900">Session Expired</h2>
-              <p className="text-slate-500 mt-2">Please log in again to reconnect securely.</p>
+              <p className="text-slate-500 mt-2">The background connection was lost. Please reload.</p>
             </div>
-            <button onClick={login} className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition-all">Reconnect</button>
+            <button onClick={() => window.location.reload()} className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition-all">Reload Dashboard</button>
           </div>
         </div>
       )}
@@ -389,13 +288,12 @@ const App: React.FC = () => {
           {(isSyncing || isLoading) && <div className="animate-spin w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full"></div>}
         </div>
         <div className="space-y-1 flex-1">
-          {[{ id: View.Dashboard, label: 'Dashboard', icon: <ICONS.Dashboard /> }, { id: View.Calendar, label: 'Full Calendar', icon: <ICONS.Calendar /> }, { id: View.Recipes, label: 'Recipe Book', icon: <ICONS.Recipes /> }, { id: View.ShoppingList, label: 'Shopping List', icon: <ICONS.Shopping /> }].map((item) => (
+          {[{ id: View.Dashboard, label: 'Dashboard', icon: <ICONS.Dashboard /> }, { id: View.Recipes, label: 'Recipe Book', icon: <ICONS.Recipes /> }, { id: View.ShoppingList, label: 'Shopping List', icon: <ICONS.Shopping /> }].map((item) => (
             <button key={item.id} onClick={() => setCurrentView(item.id)} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${currentView === item.id ? 'bg-indigo-50 text-indigo-600 font-bold shadow-sm' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}>{item.icon}{item.label}</button>
           ))}
         </div>
         <div className="pt-6 border-t border-slate-100 space-y-4">
           <div className="flex items-center gap-3 px-2"><img src={auth.user?.picture} className="w-10 h-10 rounded-full border border-slate-200" alt="Avatar" /><div className="flex-1 overflow-hidden"><p className="text-sm font-semibold text-slate-900 truncate">{auth.user?.name}</p><p className="text-xs text-slate-500 truncate">{auth.user?.email}</p></div></div>
-          <button onClick={logout} className="w-full flex items-center justify-center gap-2 py-2 text-sm text-slate-400 hover:text-red-600 transition-colors">Sign Out</button>
         </div>
       </nav>
 
@@ -431,7 +329,6 @@ const App: React.FC = () => {
             onUpdateChecked={setCheckedIngredients} 
           />
         )}
-        {currentView === View.Calendar && <CalendarView events={calendarEvents} onAddEvent={addEvent} />}
       </main>
     </div>
   );
