@@ -18,13 +18,19 @@ export interface ManualItem {
   checked: boolean;
 }
 
-// HARDCODED DATABASE
+// --- CONFIGURATION ---
 const HARDCODED_SHEET_ID = '1IwqSELEbCQPAzM9-o5d1g4lXuuGzcev7F1kJeFjpihQ';
 
 const App: React.FC = () => {
+  // --- PIN & AUTH STATE ---
+  const [needsPin, setNeedsPin] = useState(!localStorage.getItem('family_pin'));
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState(false);
+  const [isVerifyingPin, setIsVerifyingPin] = useState(false);
+
   const [auth, setAuth] = useState<AuthState>({
     token: null,
-    user: { name: 'Family Member', email: '', picture: 'https://cdn-icons-png.flaticon.com/512/3237/3237472.png' },
+    user: { name: 'Family Member', email: 'Shared Access', picture: 'https://cdn-icons-png.flaticon.com/512/3237/3237472.png' },
     isAuthenticated: false
   });
 
@@ -51,25 +57,49 @@ const App: React.FC = () => {
   const isInitialLoad = useRef(true);
   const saveTimeout = useRef<any>(null);
 
-  // SILENT LOGIN REPLACES THE OLD POPUP AUTH
-  const loginSilently = useCallback(async () => {
+  // SILENT LOGIN: Now sends the PIN to the backend to get the token!
+  const loginSilently = useCallback(async (pinToTry?: string) => {
+    const pin = pinToTry || localStorage.getItem('family_pin');
+    
+    // If no PIN provided and none in localStorage, we definitely need them to type it
+    if (!pin) {
+      setNeedsPin(true);
+      return null;
+    }
+
     setInitStatus('Connecting securely to Family Database...');
     try {
-      const res = await fetch('/api/getToken');
-      const data = await res.json();
+      const res = await fetch('/api/getToken', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin }) // Send PIN to backend for verification
+      });
       
-      if (data.access_token) {
-        setAuth({ 
-          token: data.access_token, 
-          user: { name: 'Family Member', email: 'Shared Access', picture: 'https://cdn-icons-png.flaticon.com/512/3237/3237472.png' }, 
-          isAuthenticated: true 
-        });
-        setIsTokenExpired(false);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.access_token) {
+          localStorage.setItem('family_pin', pin); // Save valid PIN
+          setNeedsPin(false);
+          setPinError(false);
+          setAuth({ 
+            token: data.access_token, 
+            user: { name: 'Family Member', email: 'Shared Access', picture: 'https://cdn-icons-png.flaticon.com/512/3237/3237472.png' }, 
+            isAuthenticated: true 
+          });
+          setIsTokenExpired(false);
+          setInitStatus('');
+          return data.access_token;
+        }
+      } else if (res.status === 401) {
+        // The backend rejected the PIN
+        localStorage.removeItem('family_pin');
+        setNeedsPin(true);
+        if (pinToTry) setPinError(true); // Only show error if they just typed it
         setInitStatus('');
-        return data.access_token;
-      } else {
-        setInitStatus('Failed to connect. Please refresh.');
+        return null;
       }
+
+      setInitStatus('Failed to connect. Please refresh.');
     } catch (e) {
       setInitStatus('Server error. Please refresh.');
       console.error("Harmony: Silent auth failed", e);
@@ -77,14 +107,26 @@ const App: React.FC = () => {
     return null;
   }, []);
 
+  // --- PIN SUBMIT HANDLER ---
+  const handlePinSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pinInput.trim()) return;
+    setIsVerifyingPin(true);
+    await loginSilently(pinInput);
+    setIsVerifyingPin(false);
+    setPinInput(''); // clear input on fail
+  };
+
   // AUTO-LOGIN ON LOAD & REFRESH TOKEN EVERY 45 MINS
   useEffect(() => {
-    if (!auth.isAuthenticated) {
+    if (!auth.isAuthenticated && !needsPin) {
       loginSilently();
     }
-    const interval = setInterval(loginSilently, 45 * 60 * 1000);
+    const interval = setInterval(() => {
+      if (!needsPin) loginSilently();
+    }, 45 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [auth.isAuthenticated, loginSilently]);
+  }, [auth.isAuthenticated, needsPin, loginSilently]);
 
 
   const fetchData = useCallback(async (overrideToken?: string) => {
@@ -132,7 +174,6 @@ const App: React.FC = () => {
         } catch (e) { console.error("Failed to parse SyncData", e); }
       }
       
-      // Removed the Calendar fetch logic here since calendar scope is dropped
       setCalendarEvents([]);
 
     } catch (err) { console.error(err); } finally { setIsLoading(false); setTimeout(() => { isInitialLoad.current = false; }, 1000); }
@@ -179,7 +220,6 @@ const App: React.FC = () => {
       const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', { method: 'POST', headers: { Authorization: `Bearer ${auth.token}` }, body: formData });
       if (!res.ok) throw new Error("Upload failed");
       const data = await res.json();
-      // Ensure file permissions allow viewing
       await fetch(`https://www.googleapis.com/drive/v3/files/${data.id}/permissions`, { method: 'POST', headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'reader', type: 'anyone' }) });
       return `https://drive.google.com/thumbnail?id=${data.id}&sz=w800`;
     } catch (err) { console.error("Drive upload failed", err); return null; }
@@ -254,7 +294,41 @@ const App: React.FC = () => {
     setCurrentView(View.Recipes);
   };
 
-  // NEW: LOADING SCREEN REPLACES GOOGLE SIGN-IN BUTTON
+  // --- RENDERING ---
+
+  // 1. PIN Screen
+  if (needsPin) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
+        <div className="bg-white rounded-[2.5rem] shadow-xl p-12 max-w-sm w-full text-center space-y-8">
+          <div className="w-20 h-20 bg-indigo-600 rounded-3xl mx-auto flex items-center justify-center text-white shadow-lg">
+            <ICONS.Dashboard />
+          </div>
+          <div>
+            <h1 className="text-3xl font-black text-slate-900 tracking-tight">Family Dashboard</h1>
+            <p className="text-slate-500 mt-2">Enter the family PIN to access.</p>
+          </div>
+          <form onSubmit={handlePinSubmit} className="space-y-4">
+            <input 
+              type="password" 
+              value={pinInput}
+              onChange={(e) => setPinInput(e.target.value)}
+              placeholder="••••"
+              disabled={isVerifyingPin}
+              className={`w-full text-center text-2xl tracking-[0.5em] font-bold bg-slate-50 border ${pinError ? 'border-red-500' : 'border-slate-200'} rounded-2xl px-4 py-4 outline-none focus:ring-2 focus:ring-indigo-100 transition-all`}
+              autoFocus
+            />
+            {pinError && <p className="text-red-500 text-xs font-bold">Incorrect PIN. Try again.</p>}
+            <button type="submit" disabled={isVerifyingPin || !pinInput} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold hover:bg-slate-800 disabled:opacity-50 transition-all shadow-lg">
+              {isVerifyingPin ? 'Unlocking...' : 'Unlock'}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Loading Screen (Connecting to Database)
   if (!auth.isAuthenticated) {
     return (
        <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
@@ -264,9 +338,9 @@ const App: React.FC = () => {
     );
   }
 
+  // 3. Main App UI
   return (
     <div className="flex flex-col md:flex-row min-h-screen relative">
-      {/* If token drops mid-use, prompt a quick refresh instead of full sign-in */}
       {isTokenExpired && (
         <div className="absolute inset-0 z-[200] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6">
           <div className="bg-white rounded-[2rem] shadow-2xl p-10 max-w-md w-full text-center space-y-6">
