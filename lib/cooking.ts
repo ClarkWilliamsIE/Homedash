@@ -1,14 +1,17 @@
 // lib/cooking.ts
-import { HOME } from '../home.config';
 import { callService, runScript } from './hass';
+import { settingsStore } from './settings';
 
-/** "Start cooking": play the Cooking music profile and bring the kitchen lights up to bright white. */
+/** "Start cooking": run the chosen music mood and bring the kitchen lights up (see Settings). */
 export const startCooking = () => {
-  runScript(HOME.cooking.script);
-  callService(
-    'light',
-    'turn_on',
-    { brightness_pct: 100, color_temp_kelvin: HOME.cooking.colorTempKelvin },
-    { entity_id: HOME.cooking.lights }
-  );
+  const { cooking } = settingsStore.get();
+  if (cooking.moodId) runScript(`script.${cooking.moodId}`);
+  if (cooking.lights) {
+    callService(
+      'light',
+      'turn_on',
+      { brightness_pct: cooking.brightness, color_temp_kelvin: cooking.kelvin },
+      { entity_id: cooking.lights }
+    );
+  }
 };

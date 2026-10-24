@@ -69,3 +69,9 @@ The same app also runs **inside Home Assistant**, where it adds a Home screen (t
 
 **Recipe import**
 * `api/importRecipe.ts` reads the recipe's structured data from the page (most recipe sites have it) and only falls back to Gemini if needed. The Gemini key is read from the `GEMINI_API_KEY` environment variable on Vercel and is no longer built into the website.
+
+**Settings screen (inside Home Assistant)**
+* Music moods: edit speakers, volumes and what plays, add or delete moods. Saving a mood rewrites its Home Assistant script (`script.profile_*`), which needs a Home Assistant **admin** login on that device.
+* Lights on the home screen: rename, reorder, add or remove rooms (pick any light or light group).
+* Start cooking: which mood plays, which lights, brightness and colour.
+* Settings are stored in the Google Sheet (`SyncData`) alongside the meal plan, so every device shares them. Defaults live in `lib/settings.ts`.

@@ -8,6 +8,7 @@ import { ManualItem } from '../../lib/merge';
 import { HOME } from '../../home.config';
 import { useEntities, useEntity, callService } from '../../lib/hass';
 import { startCooking } from '../../lib/cooking';
+import { useSettings } from '../../lib/settings';
 import { useClock, useWeather } from '../../lib/useWeather';
 import BinNotifier from '../BinNotifier';
 import FridgeNotes from '../FridgeNotes';
@@ -71,6 +72,9 @@ const Tonight: React.FC<{
   onPlan: () => void;
 }> = ({ meals, onOpen, onPlan }) => {
   const main = meals[0];
+  const { moods, cooking } = useSettings();
+  const mood = moods.find(m => m.id === cooking.moodId);
+  const whatItDoes = [mood && `puts on the ${mood.name} music`, cooking.lights && 'turns the kitchen lights up'].filter(Boolean).join(' and ');
   return (
     <div className="h-full bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden flex">
       {main ? (
@@ -97,9 +101,7 @@ const Tonight: React.FC<{
                 View recipe
               </button>
             </div>
-            <p className="text-xs font-semibold text-slate-400 mt-3">
-              Start cooking puts on the Cooking music and turns the kitchen lights up.
-            </p>
+            {whatItDoes && <p className="text-xs font-semibold text-slate-400 mt-3">Start cooking {whatItDoes}.</p>}
           </div>
         </>
       ) : (
@@ -117,7 +119,8 @@ const Tonight: React.FC<{
 };
 
 const LightsCard: React.FC<{ onMore: () => void }> = ({ onMore }) => {
-  const rooms = useEntities(HOME.rooms.map(r => r.entity));
+  const { rooms: roomList } = useSettings();
+  const rooms = useEntities(roomList.map(r => r.entity));
   const party = useEntity(HOME.partyMode);
   const anyOn = rooms.some(e => e?.state === 'on');
   return (
@@ -127,7 +130,7 @@ const LightsCard: React.FC<{ onMore: () => void }> = ({ onMore }) => {
       className="h-full flex flex-col"
     >
       <div className="space-y-2 flex-1">
-        {HOME.rooms.map((r, i) => <LightRow key={r.id} name={r.name} entityId={r.entity} entity={rooms[i]} />)}
+        {roomList.map((r, i) => <LightRow key={r.id} name={r.name} entityId={r.entity} entity={rooms[i]} />)}
       </div>
       <div className="grid grid-cols-2 gap-2 mt-3">
         <button
@@ -138,7 +141,7 @@ const LightsCard: React.FC<{ onMore: () => void }> = ({ onMore }) => {
         </button>
         <button
           disabled={!anyOn}
-          onClick={() => callService('light', 'turn_off', undefined, { entity_id: HOME.rooms.map(r => r.entity) })}
+          onClick={() => callService('light', 'turn_off', undefined, { entity_id: roomList.map(r => r.entity) })}
           className="flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-bold bg-slate-900 text-white disabled:opacity-30"
         >
           <HomeIcons.Power className="w-4 h-4" /> All off

@@ -9,10 +9,12 @@ import ShoppingList from './components/ShoppingList';
 import HomeScreen from './components/home/HomeScreen';
 import LightsView from './components/home/LightsView';
 import MusicView from './components/home/MusicView';
+import SettingsView from './components/home/SettingsView';
 import { HomeIcons } from './components/home/icons';
 import { useIsHome } from './lib/hass';
 import { apiUrl } from './lib/runtime';
 import { pack, mergeState, SyncState, ManualItem as SyncManualItem } from './lib/merge';
+import { HomeSettings, settingsStore, withDefaults } from './lib/settings';
 
 const INITIAL_PLAN: WeeklyPlan = {
   Sunday: [], Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: []
@@ -76,6 +78,10 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   const [hiddenIngredients, setHiddenIngredients] = useState<string[]>([]);
   const [clearedIngredients, setClearedIngredients] = useState<string[]>([]);
   const [checkedIngredients, setCheckedIngredients] = useState<string[]>([]);
+  const [settings, setSettings] = useState<HomeSettings | null>(null);
+
+  // Share the current settings with the home screens (moods, rooms, Start cooking).
+  useEffect(() => { settingsStore.set(withDefaults(settings)); }, [settings]);
 
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [externallySelectedRecipeId, setExternallySelectedRecipeId] = useState<string | null>(null);
@@ -94,7 +100,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   const lastSynced = useRef<SyncState | null>(null);
   const lastSyncedStr = useRef('');
   const isSaving = useRef(false);
-  const currentState = (): SyncState => pack({ weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients });
+  const currentState = (): SyncState => pack({ weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, settings });
   const stateRef = useRef<SyncState>(currentState());
   stateRef.current = currentState();
 
@@ -105,6 +111,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
     setHiddenIngredients(s.hiddenIngredients);
     setClearedIngredients(s.clearedIngredients);
     setCheckedIngredients(s.checkedIngredients);
+    setSettings(s.settings);
   };
 
   const markSynced = (s: SyncState) => {
@@ -278,7 +285,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
     saveTimeout.current = setTimeout(() => saveNow(), 1500);
     return () => clearTimeout(saveTimeout.current);
-  }, [weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, auth.token, isTokenExpired, saveNow]);
+  }, [weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, settings, auth.token, isTokenExpired, saveNow]);
 
   // --- PULL: pick up changes made on phones while this screen is open ---
   const pullChanges = useCallback(async (includeRecipes = false) => {
@@ -462,6 +469,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
     ...(isHome ? [
       { id: View.Lights, label: 'Lights', icon: <HomeIcons.Bulb className="w-5 h-5" /> },
       { id: View.Music, label: 'Music', icon: <HomeIcons.Music className="w-5 h-5" /> },
+      { id: View.Settings, label: 'Settings', icon: <HomeIcons.Gear className="w-5 h-5" /> },
     ] : []),
   ];
 
@@ -536,6 +544,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
         )}
         {currentView === View.Lights && isHome && <LightsView />}
         {currentView === View.Music && isHome && <MusicView />}
+        {currentView === View.Settings && isHome && <SettingsView settings={withDefaults(settings)} onChange={setSettings} />}
         {currentView === View.Dashboard && (
           <Dashboard
             compact={isHome}

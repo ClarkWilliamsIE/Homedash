@@ -4,6 +4,7 @@ import { HOME } from '../../home.config';
 import { callService, useEntities, useEntity } from '../../lib/hass';
 import { Card, LightRow, Switch, lightStatus, toggleLight } from './controls';
 import { HomeIcons } from './icons';
+import { useSettings } from '../../lib/settings';
 
 const friendly = (name?: string) => (name || '').replace(/^tz3210.*$/i, 'Light');
 
@@ -37,7 +38,8 @@ const RoomCard: React.FC<{ name: string; entityId: string }> = ({ name, entityId
 
 const LightsView: React.FC = () => {
   const party = useEntity(HOME.partyMode);
-  const anyOn = useEntities(HOME.rooms.map(r => r.entity)).some(e => e?.state === 'on');
+  const { rooms } = useSettings();
+  const anyOn = useEntities(rooms.map(r => r.entity)).some(e => e?.state === 'on');
 
   return (
     <div className="space-y-6 max-w-6xl">
@@ -51,14 +53,14 @@ const LightsView: React.FC = () => {
         </button>
         <button
           disabled={!anyOn}
-          onClick={() => callService('light', 'turn_off', undefined, { entity_id: HOME.rooms.map(r => r.entity) })}
+          onClick={() => callService('light', 'turn_off', undefined, { entity_id: rooms.map(r => r.entity) })}
           className="flex items-center gap-2 px-5 py-3 rounded-2xl font-bold bg-slate-900 text-white disabled:opacity-30"
         >
           <HomeIcons.Power className="w-5 h-5" /> All off
         </button>
       </div>
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {HOME.rooms.map(r => <RoomCard key={r.id} name={r.name} entityId={r.entity} />)}
+        {rooms.map(r => <RoomCard key={r.id} name={r.name} entityId={r.entity} />)}
       </div>
     </div>
   );

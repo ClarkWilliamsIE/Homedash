@@ -3,17 +3,12 @@ import React from 'react';
 import { HOME } from '../../home.config';
 import { callService, hassAsset, runScript, useEntity } from '../../lib/hass';
 import { FillSlider } from './controls';
+import { TONE_STYLES, useSettings } from '../../lib/settings';
 import { HomeIcons } from './icons';
 
 const media = (service: string, entityId: string, data?: Record<string, any>) =>
   callService('media_player', service, data, { entity_id: entityId });
 
-const TONES: Record<string, string> = {
-  orange: 'from-orange-400 to-rose-500 shadow-orange-200',
-  amber: 'from-amber-300 to-orange-400 shadow-amber-200',
-  violet: 'from-violet-500 to-fuchsia-500 shadow-violet-200',
-  indigo: 'from-indigo-500 to-blue-600 shadow-indigo-200',
-};
 
 /** Album art, title and transport controls for the kitchen & family room group. */
 export const NowPlaying: React.FC<{ large?: boolean }> = ({ large }) => {
@@ -53,20 +48,23 @@ export const NowPlaying: React.FC<{ large?: boolean }> = ({ large }) => {
 };
 
 /** The listening profiles (Cooking, Dinner…) as big buttons. */
-export const ProfileGrid: React.FC<{ large?: boolean }> = ({ large }) => (
-  <div className={`grid ${large ? 'grid-cols-4 gap-4' : 'grid-cols-2 gap-2.5'}`}>
-    {HOME.music.profiles.map(p => (
-      <button
-        key={p.script}
-        onClick={() => runScript(p.script)}
-        className={`text-left rounded-2xl bg-gradient-to-br ${TONES[p.tone]} text-white shadow-lg active:scale-[0.97] transition-transform ${large ? 'p-5' : 'px-3.5 py-3'}`}
-      >
-        <span className={`block font-black ${large ? 'text-xl' : 'text-sm'}`}>{p.name}</span>
-        <span className={`block font-semibold text-white/80 ${large ? 'text-sm' : 'text-[11px]'}`}>{p.hint}</span>
-      </button>
-    ))}
-  </div>
-);
+export const ProfileGrid: React.FC<{ large?: boolean }> = ({ large }) => {
+  const { moods } = useSettings();
+  return (
+    <div className={`grid ${large ? 'grid-cols-2 lg:grid-cols-4 gap-4' : 'grid-cols-2 gap-2.5'}`}>
+      {moods.map(m => (
+        <button
+          key={m.id}
+          onClick={() => runScript(`script.${m.id}`)}
+          className={`text-left rounded-2xl bg-gradient-to-br ${TONE_STYLES[m.tone] || TONE_STYLES.indigo} text-white shadow-lg active:scale-[0.97] transition-transform ${large ? 'p-5' : 'px-3.5 py-3'}`}
+        >
+          <span className={`block font-black truncate ${large ? 'text-xl' : 'text-sm'}`}>{m.name}</span>
+          <span className={`block font-semibold text-white/80 truncate ${large ? 'text-sm' : 'text-[11px]'}`}>{m.hint}</span>
+        </button>
+      ))}
+    </div>
+  );
+};
 
 /** One speaker: status, play/pause and its own volume. */
 export const SpeakerRow: React.FC<{ entityId: string; name: string }> = ({ entityId, name }) => {

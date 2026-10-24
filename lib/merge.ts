@@ -6,6 +6,7 @@
 // and when the same item was edited on both, this device's edit wins.
 
 import { Recipe, WeeklyPlan, FamilyNote } from '../types';
+import type { HomeSettings } from './settings';
 
 export interface ManualItem {
   id: string;
@@ -20,6 +21,8 @@ export interface SyncState {
   hiddenIngredients: string[];
   clearedIngredients: string[];
   checkedIngredients: string[];
+  /** Settings screen (music moods, rooms, Start cooking). null until someone changes a setting. */
+  settings: HomeSettings | null;
 }
 
 export const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -32,6 +35,7 @@ export const pack = (s: Partial<SyncState>): SyncState => ({
   hiddenIngredients: s.hiddenIngredients || [],
   clearedIngredients: s.clearedIngredients || [],
   checkedIngredients: s.checkedIngredients || [],
+  settings: s.settings ?? null,
 });
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -76,5 +80,7 @@ export function mergeState(baseIn: SyncState, localIn: SyncState, remoteIn: Sync
     hiddenIngredients: mergeList(base.hiddenIngredients, local.hiddenIngredients, remote.hiddenIngredients, self),
     clearedIngredients: mergeList(base.clearedIngredients, local.clearedIngredients, remote.clearedIngredients, self),
     checkedIngredients: mergeList(base.checkedIngredients, local.checkedIngredients, remote.checkedIngredients, self),
+    // Settings are saved as a whole: if this device changed them, its version wins.
+    settings: same(local.settings, base.settings) ? remote.settings : local.settings,
   });
 }
