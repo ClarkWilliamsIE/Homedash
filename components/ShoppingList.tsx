@@ -5,7 +5,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { WeeklyPlan } from '../types';
 import type { ManualItem } from '../lib/merge';
-import { Btn, Icon, PageTitle } from './ui';
+import { AddItemBar, Btn, Icon, PageTitle } from './ui';
 
 interface ShoppingListProps {
   weeklyPlan: WeeklyPlan;
@@ -121,7 +121,6 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
   checkedIngredients,
   onUpdateChecked
 }) => {
-  const [text, setText] = useState('');
   const [showTrolley, setShowTrolley] = useState(false);
   const [showPantry, setShowPantry] = useState(false);
   const [undo, setUndo] = useState<null | { items: ManualItem[]; cleared: string[]; checked: string[]; count: number }>(null);
@@ -153,12 +152,9 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
     return () => clearTimeout(syncTimeout.current);
   }, [needs, manualItems, authToken, spreadsheetId]);
 
-  const addItem = () => {
-    const name = text.trim();
-    if (!name) return;
+  const addItem = (name: string) => {
     onUpdateCleared(clearedIngredients.filter(i => i !== name.toLowerCase()));
     onUpdateItems([...manualItems, { id: Date.now().toString(), name: cap(name), checked: false }]);
-    setText('');
   };
 
   const rows: Row[] = useMemo(() => {
@@ -217,7 +213,12 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
     if (manualItems.some(i => i.name.toLowerCase() === name.toLowerCase() && !i.checked)) return;
     onUpdateItems([...manualItems, { id: Date.now().toString(), name: cap(name), checked: false }]);
   };
-  const stopPantry = (name: string) => onUpdateHidden(hiddenIngredients.filter(i => i !== name));
+  const removePantry = (name: string) => onUpdateHidden(hiddenIngredients.filter(i => i !== name));
+  const addPantry = (name: string) => {
+    const clean = name.toLowerCase().trim();
+    if (clean && !hiddenIngredients.includes(clean)) onUpdateHidden([...hiddenIngredients, clean]);
+  };
+  const [editPantry, setEditPantry] = useState(false);
 
   const subtitle = toGet.length === 0 && inTrolley.length === 0
     ? 'Nothing on the list yet'
@@ -233,17 +234,12 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
 
       {/* Add bar stays at the top while you scroll the list */}
       <div className="sticky top-0 z-20 -mx-4 px-4 md:mx-0 md:px-0 py-2 bg-slate-50">
-        <form onSubmit={e => { e.preventDefault(); addItem(); }} className="flex gap-2">
-          <input
-            value={text}
-            onChange={e => setText(e.target.value)}
-            placeholder="Add milk, bread, nappies…"
-            aria-label="Add an item"
-            enterKeyHint="done"
-            className="flex-1 min-w-0 h-12 bg-white border border-slate-200 rounded-2xl px-4 text-[17px] outline-none focus:border-indigo-500"
-          />
-          <Btn type="submit" className="h-12 w-14 !px-0" aria-label="Add to list" icon={<Icon.Plus className="w-5 h-5" />} />
-        </form>
+        <AddItemBar
+          onAdd={addItem}
+          exclude={toGet.map(r => r.name)}
+          placeholder="Add milk, bread, nappies…"
+          label="Add to the list"
+        />
       </div>
 
       {groups.length === 0 ? (
@@ -272,36 +268,45 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
         </section>
       )}
 
-      {pantry.length > 0 && (
-        <section className="mt-4 rounded-3xl border border-amber-200/70 bg-amber-50/60">
-          <button onClick={() => setShowPantry(v => !v)} className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left">
-            <span>
-              <span className="block font-semibold text-slate-800">Pantry items ({pantry.length})</span>
-              <span className="block text-sm text-slate-500">Usually in the cupboard, so recipes leave them off. Running low? Add one.</span>
-            </span>
-            <span className="text-sm font-semibold text-indigo-700 shrink-0">{showPantry ? 'Hide' : 'Show'}</span>
-          </button>
-          {showPantry && (
-            <ul className="px-2 pb-2 grid grid-cols-1 md:grid-cols-2 gap-x-2">
+      <section className="mt-4 rounded-3xl border border-amber-200/70 bg-amber-50/60">
+        <button onClick={() => setShowPantry(v => !v)} className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left">
+          <span>
+            <span className="block font-semibold text-slate-800">Pantry items ({pantry.length})</span>
+            <span className="block text-sm text-slate-500">Things you usually have in, so recipes leave them off the list. Running low? Add one.</span>
+          </span>
+          <span className="text-sm font-semibold text-indigo-700 shrink-0">{showPantry ? 'Hide' : 'Show'}</span>
+        </button>
+        {showPantry && (
+          <div className="px-2 pb-3">
+            <ul className="grid grid-cols-1 md:grid-cols-2 gap-x-2">
               {pantry.map(name => {
                 const added = manualItems.some(i => i.name.toLowerCase() === name && !i.checked);
                 return (
                   <li key={name} className="flex items-center gap-2 pl-3 pr-1 py-1.5">
                     <span className="flex-1 text-[15px] text-slate-800 truncate">{cap(name)}</span>
-                    <button onClick={() => addPantryOnce(name)} disabled={added}
-                      className="h-9 px-3 rounded-xl text-sm font-semibold bg-white text-indigo-700 border border-slate-200 disabled:text-slate-500 disabled:bg-transparent disabled:border-transparent">
-                      {added ? 'On the list' : 'Add'}
-                    </button>
-                    <button onClick={() => stopPantry(name)} title="Stop treating this as a pantry item" className="h-9 px-2 rounded-xl text-sm font-semibold text-slate-500 hover:text-slate-800">
-                      Not pantry
-                    </button>
+                    {editPantry ? (
+                      <button onClick={() => removePantry(name)} className="h-9 px-3 rounded-xl text-sm font-semibold text-rose-700 hover:bg-rose-50">Remove</button>
+                    ) : (
+                      <button onClick={() => addPantryOnce(name)} disabled={added}
+                        className="h-9 px-3 rounded-xl text-sm font-semibold bg-white text-indigo-700 border border-slate-200 disabled:text-slate-500 disabled:bg-transparent disabled:border-transparent">
+                        {added ? 'On the list' : 'Add'}
+                      </button>
+                    )}
                   </li>
                 );
               })}
             </ul>
-          )}
-        </section>
-      )}
+            <div className="px-2 pt-3">
+              <AddItemBar onAdd={addPantry} exclude={pantry} remember={false} tinted placeholder="Add a pantry item, e.g. rice" label="Add a pantry item" />
+              <div className="flex justify-end mt-2">
+                <button onClick={() => setEditPantry(v => !v)} className="text-sm font-semibold text-slate-500 hover:text-slate-800 px-2 py-1">
+                  {editPantry ? 'Done' : 'Remove items…'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
 
       {clearedIngredients.length > 0 && (
         <p className="text-center mt-6">

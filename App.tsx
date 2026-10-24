@@ -21,6 +21,7 @@ import { useIsHome } from './lib/hass';
 import { apiUrl } from './lib/runtime';
 import { pack, mergeState, SyncState, ManualItem as SyncManualItem } from './lib/merge';
 import { HomeSettings, settingsStore, withDefaults } from './lib/settings';
+import { recordItem, setItemCatalog } from './lib/items';
 
 const INITIAL_PLAN: WeeklyPlan = {
   Sunday: [], Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: []
@@ -32,7 +33,7 @@ export type ManualItem = SyncManualItem;
 const HARDCODED_SHEET_ID = '1IwqSELEbCQPAzM9-o5d1g4lXuuGzcev7F1kJeFjpihQ';
 
 // How often to pull changes made on other devices (phones, the kitchen iPad).
-const SYNC_POLL_MS = 30 * 1000;
+const SYNC_POLL_MS = 10 * 1000;
 const RECIPE_POLL_MS = 5 * 60 * 1000;
 
 // --- OFFLINE COPY ---
@@ -129,6 +130,11 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   const [checkedIngredients, setCheckedIngredients] = useState<string[]>(cached?.state.checkedIngredients || []);
   const [settings, setSettings] = useState<HomeSettings | null>(cached?.state.settings ?? null);
 
+  // Everything the "add an item" boxes can suggest.
+  useEffect(() => {
+    setItemCatalog([...recipes.flatMap(r => r.ingredients.map(i => i.item)), ...hiddenIngredients]);
+  }, [recipes, hiddenIngredients]);
+
   // Share the current settings with the home screens (moods, rooms, Start cooking).
   useEffect(() => { settingsStore.set(withDefaults(settings)); }, [settings]);
   const [calendarStatus, setCalendarStatus] = useState<CalendarStatus>({ status: 'loading', calendars: [] });
@@ -152,6 +158,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   const saveTimeout = useRef<any>(null);
   const saveFailures = useRef(0);
   const tokenRef = useRef<string | null>(null);
+  const tokenAt = useRef(0);
   tokenRef.current = auth.token;
 
   // --- SYNC BOOKKEEPING ---
@@ -205,6 +212,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
         const data = await res.json();
         if (data.access_token) {
           localStorage.setItem('family_pin', pin);
+          tokenAt.current = Date.now();
           setNeedsPin(false);
           setPinError(false);
           setAuth(a => ({ ...a, token: data.access_token, isAuthenticated: true }));
@@ -382,36 +390,51 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   const pullChanges = useCallback(async (includeRecipes = false) => {
     const token = tokenRef.current;
     if (!token || !lastSynced.current || isSaving.current || !navigator.onLine) return;
-    // Don't pull over the top of unsaved local edits; the save will merge them.
-    if (JSON.stringify(stateRef.current) !== lastSyncedStr.current) return;
+    // Edits here that haven't reached the sheet yet (say a save failed on weak signal):
+    // save now, which reads the sheet, merges both sides and shows the result.
+    if (JSON.stringify(stateRef.current) !== lastSyncedStr.current) { saveNow(); return; }
     try {
       const remote = await readSyncData(token);
       if (remote === 'expired') { setIsTokenExpired(true); return; }
-      if (remote && JSON.stringify(remote) !== lastSyncedStr.current && JSON.stringify(stateRef.current) === lastSyncedStr.current) {
-        markSynced(remote);
-        applyState(remote);
+      if (remote && JSON.stringify(remote) !== lastSyncedStr.current) {
+        if (JSON.stringify(stateRef.current) === lastSyncedStr.current) {
+          markSynced(remote);
+          applyState(remote);
+        } else {
+          saveNow(); // something was ticked while we were reading: merge instead
+        }
       }
       if (includeRecipes) {
         const fresh = await readRecipes(token);
         if (fresh !== 'expired') setRecipes(fresh);
       }
     } catch (err) { console.error("Failed to pull changes", err); }
-  }, []);
+  }, [saveNow]);
 
   useEffect(() => {
     if (!auth.isAuthenticated) return;
     const syncTimer = setInterval(() => { if (!document.hidden) pullChanges(false); }, SYNC_POLL_MS);
     const recipeTimer = setInterval(() => { if (!document.hidden) pullChanges(true); }, RECIPE_POLL_MS);
-    const onVisible = () => { if (!document.hidden) pullChanges(true); };
-    document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('focus', onVisible);
+    // Coming back to the app (unlocking the phone, switching back from another app).
+    // Phones pause the app in the background, so its Google sign-in may have lapsed: renew it first.
+    let last = 0;
+    const onResume = async () => {
+      if (document.hidden || Date.now() - last < 2000) return;
+      last = Date.now();
+      if (Date.now() - tokenAt.current > 40 * 60 * 1000 && navigator.onLine) await loginSilently();
+      pullChanges(true);
+    };
+    document.addEventListener('visibilitychange', onResume);
+    window.addEventListener('focus', onResume);
+    window.addEventListener('pageshow', onResume);
     return () => {
       clearInterval(syncTimer);
       clearInterval(recipeTimer);
-      document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('focus', onVisible);
+      document.removeEventListener('visibilitychange', onResume);
+      window.removeEventListener('focus', onResume);
+      window.removeEventListener('pageshow', onResume);
     };
-  }, [auth.isAuthenticated, pullChanges]);
+  }, [auth.isAuthenticated, pullChanges, loginSilently]);
 
   // --- FAMILY CALENDAR ---
   const chosenCalendars = JSON.stringify(withDefaults(settings).calendars);
@@ -525,6 +548,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   };
 
   const addManualItem = (name: string) => {
+    recordItem(name);
     const clean = name.toLowerCase().split('(')[0].trim();
     setClearedIngredients(prev => prev.filter(i => i !== clean));
     setManualItems(prev => [...prev, { id: Date.now().toString(), name: name, checked: false }]);

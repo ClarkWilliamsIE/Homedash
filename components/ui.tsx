@@ -2,6 +2,7 @@
 // Shared building blocks for the Homedash look (oat paper, kawakawa green, Young Serif headings).
 
 import React, { useEffect, useSyncExternalStore } from 'react';
+import { recordItem, useItemSuggestions } from '../lib/items';
 
 // --- Is this a phone-sized screen? ---
 const PHONE_QUERY = '(max-width: 767px)';
@@ -188,5 +189,66 @@ export const CustomMealForm: React.FC<{
       </div>
       <Btn type="submit" size="lg" className="w-full" disabled={!name.trim()}>{submitLabel}</Btn>
     </form>
+  );
+};
+
+/** "Add an item" box that suggests things as you type (tap a suggestion to add it straight away). */
+export const AddItemBar: React.FC<{
+  onAdd: (name: string) => void;
+  exclude?: string[];
+  placeholder: string;
+  label: string;
+  tinted?: boolean;
+  remember?: boolean;
+}> = ({ onAdd, exclude = [], placeholder, label, tinted, remember = true }) => {
+  const [text, setText] = React.useState('');
+  const [focused, setFocused] = React.useState(false);
+  const suggestions = useItemSuggestions(text, exclude);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  const add = (raw: string) => {
+    const name = raw.trim();
+    if (!name) return;
+    const tidy = name.charAt(0).toUpperCase() + name.slice(1);
+    if (remember) recordItem(tidy);
+    onAdd(tidy);
+    setText('');
+    inputRef.current?.focus();
+  };
+  return (
+    <div>
+      <form onSubmit={e => { e.preventDefault(); add(text); }} className="flex gap-2">
+        <input
+          ref={inputRef}
+          value={text}
+          onChange={e => setText(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setTimeout(() => setFocused(false), 150)}
+          placeholder={placeholder}
+          aria-label={label}
+          autoComplete="off"
+          autoCapitalize="sentences"
+          enterKeyHint="done"
+          className={`flex-1 min-w-0 h-12 rounded-2xl px-4 text-[16px] outline-none ${tinted ? 'bg-slate-100 focus:bg-white focus:ring-2 focus:ring-indigo-200' : 'bg-white border border-slate-200 focus:border-indigo-500'}`}
+        />
+        <Btn type="submit" className="!h-12 w-12 !px-0 shrink-0" aria-label={label} icon={<Icon.Plus className="w-5 h-5" />} />
+      </form>
+      {(focused || text) && suggestions.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto no-scrollbar pt-2 -mx-1 px-1" role="listbox" aria-label="Suggestions">
+          {suggestions.map(sug => (
+            <button
+              key={sug}
+              type="button"
+              role="option"
+              aria-selected={false}
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => add(sug)}
+              className="shrink-0 h-10 px-4 rounded-full bg-indigo-50 text-indigo-800 font-medium whitespace-nowrap border border-indigo-100 active:bg-indigo-100"
+            >
+              {sug}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 };

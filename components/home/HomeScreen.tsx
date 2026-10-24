@@ -15,7 +15,7 @@ import { eventsOn, eventTime } from '../../lib/calendar';
 import BinNotifier from '../BinNotifier';
 import FridgeNotes from '../FridgeNotes';
 import RecipePicker from '../RecipePicker';
-import { Btn, Icon, MealPhoto, Panel } from '../ui';
+import { AddItemBar, MealPhoto, Btn, Icon, Panel } from '../ui';
 import { LightRow, MoreLink } from './controls';
 import { HomeIcons } from './icons';
 import { MasterVolume, NowPlaying, ProfileGrid } from './music';
@@ -207,32 +207,21 @@ const LightsCard: React.FC<{ onMore: () => void }> = ({ onMore }) => {
 };
 
 const ShoppingCard: React.FC<{ left: number; onAdd: (name: string) => void; onOpen: () => void }> = ({ left, onAdd, onOpen }) => {
-  const [text, setText] = useState('');
   const [added, setAdded] = useState<string | null>(null);
-  const submit = () => {
-    const name = text.trim();
-    if (!name) return;
-    onAdd(name.charAt(0).toUpperCase() + name.slice(1));
-    setText('');
-    setAdded(name);
-    setTimeout(() => setAdded(null), 2500);
-  };
+  const timer = React.useRef<any>(null);
   return (
     <Panel title="Shopping list" action={<MoreLink onClick={onOpen}>Open</MoreLink>}>
       <button onClick={onOpen} className="flex items-baseline gap-2 mb-4 text-left">
         <span className="font-display text-5xl text-slate-900 leading-none">{left}</span>
         <span className="text-slate-500">{left === 1 ? 'thing to get' : 'things to get'}</span>
       </button>
-      <form onSubmit={e => { e.preventDefault(); submit(); }} className="flex gap-2">
-        <input
-          value={text}
-          onChange={e => setText(e.target.value)}
-          placeholder="We've run out of…"
-          aria-label="Add to the shopping list"
-          className="flex-1 min-w-0 h-12 bg-slate-100 rounded-2xl px-4 text-[16px] outline-none focus:bg-white focus:ring-2 focus:ring-indigo-200"
-        />
-        <Btn type="submit" className="!h-12 w-12 !px-0" aria-label="Add" icon={<Icon.Plus className="w-5 h-5" />} />
-      </form>
+      <AddItemBar
+        tinted
+        remember={false}
+        placeholder="We've run out of…"
+        label="Add to the shopping list"
+        onAdd={name => { onAdd(name); setAdded(name); clearTimeout(timer.current); timer.current = setTimeout(() => setAdded(null), 2500); }}
+      />
       <p className="text-sm text-slate-500 mt-2 h-5">{added ? `Added ${added}` : ''}</p>
     </Panel>
   );
