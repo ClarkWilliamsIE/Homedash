@@ -4,7 +4,7 @@ import { HOME } from '../../home.config';
 import { runScript } from '../../lib/hass';
 import { Card } from './controls';
 import { HomeIcons } from './icons';
-import { NowPlaying, ProfileGrid, SpeakerRow } from './music';
+import { NowPlaying, ProfileGrid, SpeakerMixer } from './music';
 import MusicBrowser from './MusicBrowser';
 
 const MusicView: React.FC = () => (
@@ -21,9 +21,7 @@ const MusicView: React.FC = () => (
 
     <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-6">
       <Card title="Speakers">
-        <div className="space-y-2.5">
-          {HOME.music.speakers.map(s => <SpeakerRow key={s.entity} entityId={s.entity} name={s.name} />)}
-        </div>
+        <SpeakerMixer />
       </Card>
       <Card title="Play something">
         <div className="space-y-2.5">
