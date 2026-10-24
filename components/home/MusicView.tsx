@@ -5,6 +5,7 @@ import { runScript } from '../../lib/hass';
 import { Card } from './controls';
 import { HomeIcons } from './icons';
 import { NowPlaying, ProfileGrid, SpeakerRow } from './music';
+import MusicBrowser from './MusicBrowser';
 
 const MusicView: React.FC = () => (
   <div className="space-y-6 max-w-6xl">
@@ -15,6 +16,8 @@ const MusicView: React.FC = () => (
     <Card title="Moods">
       <ProfileGrid large />
     </Card>
+
+    <MusicBrowser />
 
     <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-6">
       <Card title="Speakers">

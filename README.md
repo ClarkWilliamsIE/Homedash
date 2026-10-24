@@ -82,3 +82,5 @@ The same app also runs **inside Home Assistant**, where it adds a Home screen (t
 * *Family calendar*: today's and tomorrow's events from Google Calendar show on the Home screen (and in Today's Agenda on the website). Pick calendars in Settings. Uses the same Google login as the Sheet, so that login needs calendar permission.
 * *Night mode*: between the set times, after a few idle minutes, the kitchen screen shows a dim clock. Any touch wakes it.
 * *Full screen*: Settings → This device hides Home Assistant's top bar and side menu on that device only (remembered in that browser).
+
+**Browse music** (Music screen): search Spotify and your Music Assistant library (playlists, recently played, albums, artists, radio) and play on any speaker or the kitchen & family room group, or add to the queue. Uses Music Assistant's `search` / `get_library` services, so it works on non-admin logins too.

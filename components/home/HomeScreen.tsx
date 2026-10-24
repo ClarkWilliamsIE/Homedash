@@ -238,7 +238,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
       </div>
 
       <div className="col-span-12 md:col-span-6 lg:col-span-4 space-y-5">
-        <Card title="Music" action={<MoreLink onClick={() => onNavigate(View.Music)}>Speakers</MoreLink>}>
+        <Card title="Music" action={<MoreLink onClick={() => onNavigate(View.Music)}>Browse</MoreLink>}>
           <NowPlaying />
           <div className="mt-5"><ProfileGrid /></div>
         </Card>
