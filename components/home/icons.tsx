@@ -32,5 +32,9 @@ export const HomeIcons = {
   Up: (p: P) => <S {...p}><path d="m18 15-6-6-6 6" /></S>,
   Down: (p: P) => <S {...p}><path d="m6 9 6 6 6-6" /></S>,
   Edit: (p: P) => <S {...p}><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></S>,
+  Timer: (p: P) => <S {...p}><path d="M10 2h4" /><path d="M12 14l3-3" /><circle cx="12" cy="14" r="8" /></S>,
+  Bell: (p: P) => <S {...p}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></S>,
+  Calendar: (p: P) => <S {...p}><rect width="18" height="18" x="3" y="4" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></S>,
+  Expand: (p: P) => <S {...p}><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></S>,
   Party: (p: P) => <S {...p}><path d="M5.8 11.3 2 22l10.7-3.8" /><path d="M4 3h.01M22 8h.01M15 2h.01M22 20h.01" /><path d="m22 2-2.24.75a2.9 2.9 0 0 0-1.96 3.12c.1.86-.57 1.63-1.45 1.63h-.38c-.86 0-1.6.6-1.76 1.44L14 10" /><path d="M11 13a8 8 0 0 0-5.2-1.7" /><path d="M11 13c-.6-2.4-1.8-4.1-3.8-5" /></S>,
 };

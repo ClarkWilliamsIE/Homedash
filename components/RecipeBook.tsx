@@ -5,6 +5,33 @@ import { Recipe, Ingredient, Instruction } from '../types';
 import { apiUrl } from '../lib/runtime';
 import { useIsHome } from '../lib/hass';
 import { startCooking } from '../lib/cooking';
+import { startTimer, TIME_PATTERN, toSeconds } from '../lib/timers';
+
+/** A method step where times like "simmer 20 minutes" become tap-to-start timers. */
+const StepText: React.FC<{ text: string; label: string }> = ({ text, label }) => {
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(new RegExp(TIME_PATTERN))) {
+    const index = m.index ?? 0;
+    if (index > last) parts.push(text.slice(last, index));
+    const seconds = toSeconds(parseFloat(m[1]), m[3]);
+    parts.push(
+      <button
+        key={index}
+        type="button"
+        onClick={() => startTimer(`${label}: ${m[0]}`, seconds)}
+        title="Start a timer"
+        className="inline-flex items-center gap-1 px-2 py-0.5 mx-0.5 rounded-lg bg-indigo-50 text-indigo-700 font-bold hover:bg-indigo-100 align-baseline"
+      >
+        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 2h4" /><path d="M12 14l3-3" /><circle cx="12" cy="14" r="8" /></svg>
+        {m[0]}
+      </button>
+    );
+    last = index + m[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return <>{parts}</>;
+};
 
 // --- UTILS FOR SCALING ---
 
@@ -365,13 +392,13 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
                     <div className="xl:border-l xl:border-slate-100 xl:pl-12">
                       <h3 className="text-sm font-black uppercase tracking-widest text-slate-400 mb-6">Method</h3>
                       <div className="space-y-6">
-                        {viewingRecipe.instructions?.map((step, idx) => (
+                        {viewingRecipe.instructions?.map((step, idx, all) => (
                           step.isHeader ? (
                             <h4 key={idx} className="text-xl font-bold text-slate-800 mt-10 mb-2 pb-2 border-b border-slate-100">{step.text}</h4>
                           ) : (
                             <div key={idx} className="flex gap-4 group">
                               <div className="w-1 bg-indigo-100 rounded-full self-stretch group-hover:bg-indigo-300 transition-colors"></div>
-                              <p className="text-lg text-slate-600 leading-relaxed font-medium">{step.text}</p>
+                              <p className="text-lg text-slate-600 leading-relaxed font-medium"><StepText text={step.text} label={`${viewingRecipe.name} (step ${all.slice(0, idx + 1).filter(s => !s.isHeader).length})`} /></p>
                             </div>
                           )
                         ))}

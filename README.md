@@ -75,3 +75,10 @@ The same app also runs **inside Home Assistant**, where it adds a Home screen (t
 * Lights on the home screen: rename, reorder, add or remove rooms (pick any light or light group).
 * Start cooking: which mood plays, which lights, brightness and colour.
 * Settings are stored in the Google Sheet (`SyncData`) alongside the meal plan, so every device shares them. Defaults live in `lib/settings.ts`.
+
+**Kitchen extras**
+* *Dinner's ready* (Home screen, next to tonight's dinner): announces a message on every speaker through Music Assistant and flashes chosen lights. Message, volume and lights are in Settings.
+* *Timers*: times in a recipe's method ("simmer 20 minutes") are tap-to-start; the Timer button (bottom-right) has quick timers. Finished timers chime on screen and can be announced on a speaker (Settings → Timers). Timers live on the device that started them.
+* *Family calendar*: today's and tomorrow's events from Google Calendar show on the Home screen (and in Today's Agenda on the website). Pick calendars in Settings. Uses the same Google login as the Sheet, so that login needs calendar permission.
+* *Night mode*: between the set times, after a few idle minutes, the kitchen screen shows a dim clock. Any touch wakes it.
+* *Full screen*: Settings → This device hides Home Assistant's top bar and side menu on that device only (remembered in that browser).

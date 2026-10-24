@@ -33,6 +33,11 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+:host([kiosk]) {
+  height: 100vh;
+  height: 100dvh;
+}
+
 .hd-root {
   height: 100%;
 }

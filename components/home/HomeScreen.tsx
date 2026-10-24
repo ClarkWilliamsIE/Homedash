@@ -3,13 +3,15 @@
 // bins, a quick shopping-list add and the fridge notes, all on one screen.
 
 import React, { useMemo, useState } from 'react';
-import { FamilyNote, Recipe, View, WeeklyPlan } from '../../types';
+import { CalendarEvent, FamilyNote, Recipe, View, WeeklyPlan } from '../../types';
 import { ManualItem } from '../../lib/merge';
 import { HOME } from '../../home.config';
 import { useEntities, useEntity, callService } from '../../lib/hass';
 import { startCooking } from '../../lib/cooking';
 import { useSettings } from '../../lib/settings';
 import { useClock, useWeather } from '../../lib/useWeather';
+import { callDinner } from '../../lib/announce';
+import { eventsOn, eventTime } from '../../lib/calendar';
 import BinNotifier from '../BinNotifier';
 import FridgeNotes from '../FridgeNotes';
 import RecipePicker from '../RecipePicker';
@@ -30,9 +32,31 @@ interface HomeScreenProps {
   onAddMeal: (day: string, recipe: Recipe) => void;
   onOpenRecipe: (recipe: Recipe) => void;
   onNavigate: (view: View) => void;
+  events: CalendarEvent[];
 }
 
-const ClockWeather: React.FC = () => {
+const Agenda: React.FC<{ events: CalendarEvent[]; now: Date }> = ({ events, now }) => {
+  const today = eventsOn(events, now).filter(e => !e.end.dateTime || new Date(e.end.dateTime) > now);
+  const tomorrowDate = new Date(now); tomorrowDate.setDate(now.getDate() + 1);
+  const tomorrow = eventsOn(events, tomorrowDate);
+  if (!today.length && !tomorrow.length) return <p className="text-sm font-semibold text-indigo-200">Nothing on the calendar today or tomorrow.</p>;
+  const row = (e: CalendarEvent, prefix?: string) => (
+    <li key={e.id} className="flex items-center gap-2.5 min-w-0">
+      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: e.color || '#fff' }} />
+      <span className="text-xs font-black text-indigo-200 w-[6.5rem] shrink-0 whitespace-nowrap">{prefix || eventTime(e)}</span>
+      <span className="text-sm font-bold truncate">{e.summary}</span>
+    </li>
+  );
+  return (
+    <ul className="space-y-1.5">
+      {today.slice(0, 3).map(e => row(e))}
+      {today.length > 3 && <li className="text-xs font-bold text-indigo-200 pl-[1.1rem]">+{today.length - 3} more today</li>}
+      {today.length < 3 && tomorrow.slice(0, 3 - today.length).map(e => row(e, `Tmrw ${eventTime(e)}`))}
+    </ul>
+  );
+};
+
+const ClockWeather: React.FC<{ events: CalendarEvent[] }> = ({ events }) => {
   const now = useClock();
   const weather = useWeather();
   return (
@@ -42,6 +66,7 @@ const ClockWeather: React.FC = () => {
         <p className="text-6xl font-black tracking-tighter leading-none mt-1">
           {now.toLocaleTimeString('en-NZ', { hour: 'numeric', minute: '2-digit', hour12: true })}
         </p>
+        <div className="mt-5"><Agenda events={events} now={now} /></div>
       </div>
       <div className="relative z-10 flex items-end justify-between gap-4 mt-6">
         {weather ? (
@@ -66,6 +91,18 @@ const ClockWeather: React.FC = () => {
   );
 };
 
+const DinnerButton: React.FC = () => {
+  const [called, setCalled] = useState(false);
+  return (
+    <button
+      onClick={() => { callDinner(); setCalled(true); setTimeout(() => setCalled(false), 4000); }}
+      className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-colors ${called ? 'bg-emerald-500 text-white' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'}`}
+    >
+      <HomeIcons.Bell className="w-4 h-4" /> {called ? 'Called!' : "Dinner's ready"}
+    </button>
+  );
+};
+
 const Tonight: React.FC<{
   meals: Recipe[];
   onOpen: (r: Recipe) => void;
@@ -83,7 +120,10 @@ const Tonight: React.FC<{
             <img src={main.imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
           </button>
           <div className="flex-1 p-7 flex flex-col min-w-0">
-            <p className="text-[11px] font-black uppercase tracking-widest text-orange-500">Tonight's dinner</p>
+            <div className="flex items-center justify-between gap-3 -mt-1">
+              <p className="text-[11px] font-black uppercase tracking-widest text-orange-500">Tonight's dinner</p>
+              <DinnerButton />
+            </div>
             <h2 className="text-3xl font-black text-slate-900 tracking-tight leading-tight mt-1 line-clamp-2">{main.name}</h2>
             <div className="flex flex-wrap gap-1.5 mt-3">
               {main.tags.slice(0, 3).map(t => <span key={t} className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full uppercase">{t}</span>)}
@@ -105,7 +145,8 @@ const Tonight: React.FC<{
           </div>
         </>
       ) : (
-        <div className="flex-1 p-7 flex flex-col items-start justify-center">
+        <div className="flex-1 p-7 flex flex-col items-start justify-center relative">
+          <div className="absolute top-6 right-6"><DinnerButton /></div>
           <p className="text-[11px] font-black uppercase tracking-widest text-orange-500">Tonight's dinner</p>
           <h2 className="text-3xl font-black text-slate-900 tracking-tight mt-1">Nothing planned yet</h2>
           <p className="text-slate-500 font-medium mt-1">Pick something from the recipe book.</p>
@@ -178,7 +219,7 @@ const ShoppingCard: React.FC<{ items: ManualItem[]; onAdd: (name: string) => voi
 };
 
 const HomeScreen: React.FC<HomeScreenProps> = ({
-  weeklyPlan, recipes, notes, manualItems, onAddNote, onRemoveNote, onAddShoppingItem, onAddMeal, onOpenRecipe, onNavigate,
+  weeklyPlan, recipes, notes, manualItems, onAddNote, onRemoveNote, onAddShoppingItem, onAddMeal, onOpenRecipe, onNavigate, events,
 }) => {
   const [picking, setPicking] = useState(false);
   const today = DAYS[new Date().getDay()];
@@ -191,7 +232,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
 
   return (
     <div className="grid grid-cols-12 gap-5 max-w-[1500px]">
-      <div className="col-span-12 lg:col-span-5"><ClockWeather /></div>
+      <div className="col-span-12 lg:col-span-5"><ClockWeather events={events} /></div>
       <div className="col-span-12 lg:col-span-7 min-h-[15rem]">
         <Tonight meals={tonight} onOpen={onOpenRecipe} onPlan={() => setPicking(true)} />
       </div>

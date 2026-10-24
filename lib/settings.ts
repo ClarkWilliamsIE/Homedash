@@ -35,11 +35,37 @@ export interface CookingSettings {
   kelvin: number;
 }
 
+export interface DinnerSettings {
+  message: string;
+  /** 0–100 announcement volume */
+  volume: number;
+  /** Lights that flash when dinner's called */
+  flashLights: string[];
+}
+
+export interface TimerSettings {
+  /** Speaker that announces finished timers ('' = chime on the screen only) */
+  speaker: string;
+}
+
+export interface NightSettings {
+  enabled: boolean;
+  /** "21:30" style times */
+  start: string;
+  end: string;
+  idleMinutes: number;
+}
+
 export interface HomeSettings {
   version: 1;
   moods: Mood[];
   rooms: Room[];
   cooking: CookingSettings;
+  dinner: DinnerSettings;
+  timers: TimerSettings;
+  night: NightSettings;
+  /** Google Calendar ids to show; null = the calendars ticked in Google Calendar itself */
+  calendars: string[] | null;
 }
 
 const GOOD: MoodMusic = { mode: 'if_idle', mediaId: 'library://playlist/56', mediaType: 'playlist', label: 'Good' };
@@ -56,6 +82,10 @@ export const DEFAULT_SETTINGS: HomeSettings = {
   ],
   rooms: HOME.rooms,
   cooking: { moodId: 'profile_cooking', lights: HOME.cooking.lights, brightness: 100, kelvin: HOME.cooking.colorTempKelvin },
+  dinner: { message: "Dinner's ready! Come and eat.", volume: 55, flashLights: ['light.kids_lights'] },
+  timers: { speaker: 'media_player.kitchen' },
+  night: { enabled: true, start: '21:30', end: '06:30', idleMinutes: 2 },
+  calendars: null,
 };
 
 /** Fill in anything missing (e.g. settings saved by an older version). */
@@ -64,6 +94,10 @@ export const withDefaults = (s?: Partial<HomeSettings> | null): HomeSettings => 
   moods: s?.moods?.length ? s.moods : DEFAULT_SETTINGS.moods,
   rooms: s?.rooms?.length ? s.rooms : DEFAULT_SETTINGS.rooms,
   cooking: { ...DEFAULT_SETTINGS.cooking, ...(s?.cooking || {}) },
+  dinner: { ...DEFAULT_SETTINGS.dinner, ...(s?.dinner || {}) },
+  timers: { ...DEFAULT_SETTINGS.timers, ...(s?.timers || {}) },
+  night: { ...DEFAULT_SETTINGS.night, ...(s?.night || {}) },
+  calendars: s?.calendars ?? null,
 });
 
 // --- A small store so any screen can read the current settings ---

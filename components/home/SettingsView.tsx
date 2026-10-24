@@ -11,11 +11,20 @@ import {
   deleteMoodScript, isHassAdmin, loadMusicChoices, newMoodId, saveMoodScript,
 } from '../../lib/settings';
 import { Card, FillSlider, Switch } from './controls';
+import { callDinner } from '../../lib/announce';
+import { CalendarInfo } from '../../lib/calendar';
+import { setFullscreen, useFullscreen } from '../../lib/kiosk';
 import { HomeIcons } from './icons';
+
+export interface CalendarStatus {
+  status: 'loading' | 'ok' | 'no-access' | 'error';
+  calendars: CalendarInfo[];
+}
 
 interface SettingsViewProps {
   settings: HomeSettings;
   onChange: (s: HomeSettings) => void;
+  calendar: CalendarStatus;
 }
 
 const TONES: Tone[] = ['orange', 'amber', 'rose', 'emerald', 'teal', 'sky', 'indigo', 'violet', 'slate'];
@@ -212,7 +221,8 @@ const MoodEditor: React.FC<{
 // Settings screen
 // ---------------------------------------------------------------------------
 
-const SettingsView: React.FC<SettingsViewProps> = ({ settings, onChange }) => {
+const SettingsView: React.FC<SettingsViewProps> = ({ settings, onChange, calendar }) => {
+  const fullscreen = useFullscreen();
   const [editing, setEditing] = useState<{ mood: Mood; isNew: boolean } | null>(null);
   const [tested, setTested] = useState<string | null>(null);
   const lights = useLightOptions();
@@ -348,6 +358,121 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onChange }) => {
               </div>
             </>
           )}
+        </div>
+      </Card>
+
+      {/* DINNER'S READY */}
+      <Card
+        title="Dinner's ready button"
+        action={
+          <button onClick={() => { callDinner(); flash('dinner'); }}
+            className={`px-4 py-2 rounded-xl text-sm font-bold ${tested === 'dinner' ? 'bg-emerald-500 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>
+            {tested === 'dinner' ? 'Announced' : 'Try it'}
+          </button>
+        }
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <label className="block md:col-span-2">
+            <span className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">What it says (on every speaker)</span>
+            <input className={inputClass} value={settings.dinner.message} onChange={e => update({ dinner: { ...settings.dinner, message: e.target.value } })} />
+          </label>
+          <div>
+            <span className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Announcement volume</span>
+            <FillSlider className="h-11" tone="indigo" value={settings.dinner.volume} onCommit={v => update({ dinner: { ...settings.dinner, volume: v } })} label="Volume" />
+          </div>
+          <div>
+            <span className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Flash these lights</span>
+            <div className="flex flex-wrap gap-2">
+              {settings.rooms.map(r => {
+                const onList = settings.dinner.flashLights.includes(r.entity);
+                return (
+                  <button key={r.id}
+                    onClick={() => update({ dinner: { ...settings.dinner, flashLights: onList ? settings.dinner.flashLights.filter(x => x !== r.entity) : [...settings.dinner.flashLights, r.entity] } })}
+                    className={`px-3.5 py-2.5 rounded-xl text-sm font-bold ${onList ? 'bg-amber-400 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                    {r.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* TIMERS */}
+      <Card title="Timers">
+        <label className="block max-w-md">
+          <span className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">When a timer finishes, also announce it on</span>
+          <select className={inputClass} value={settings.timers.speaker} onChange={e => update({ timers: { speaker: e.target.value } })}>
+            <option value="">No speaker (chime on the screen only)</option>
+            {HOME.music.speakers.map(s => <option key={s.entity} value={s.entity}>{s.name}</option>)}
+            <option value={HOME.music.group}>Kitchen & family room together</option>
+          </select>
+        </label>
+        <p className="text-xs font-semibold text-slate-400 mt-3">Tap any time in a recipe's method (like "simmer 20 minutes") to start a timer, or use the Timer button in the corner.</p>
+      </Card>
+
+      {/* CALENDAR */}
+      <Card title="Family calendar">
+        {calendar.status === 'loading' && <p className="text-sm font-semibold text-slate-400">Loading your calendars…</p>}
+        {calendar.status === 'no-access' && (
+          <p className="text-sm font-semibold text-amber-700 bg-amber-50 rounded-2xl p-4">
+            Homedash's Google login doesn't have calendar access yet. The Google account behind the Sheet needs to be reconnected with calendar permission. Ask Claude to help with this.
+          </p>
+        )}
+        {calendar.status === 'error' && <p className="text-sm font-semibold text-red-600">Couldn't load your calendars just now. It'll try again shortly.</p>}
+        {calendar.status === 'ok' && (
+          <>
+            <p className="text-sm font-semibold text-slate-500 mb-3">Show events from:</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {calendar.calendars.map(c => {
+                const chosen = settings.calendars ?? calendar.calendars.filter(x => x.selected || x.primary).map(x => x.id);
+                const on = chosen.includes(c.id);
+                return (
+                  <button key={c.id}
+                    onClick={() => update({ calendars: on ? chosen.filter(x => x !== c.id) : [...chosen, c.id] })}
+                    className={`flex items-center gap-3 p-3 rounded-2xl text-left ${on ? 'bg-indigo-50' : 'bg-slate-50'}`}>
+                    <span className="w-5 h-5 rounded-md shrink-0 flex items-center justify-center text-white text-xs font-black" style={{ background: on ? c.color : '#e2e8f0' }}>{on ? '✓' : ''}</span>
+                    <span className="font-bold text-slate-800 truncate">{c.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </Card>
+
+      {/* NIGHT MODE */}
+      <Card
+        title="Night mode"
+        action={<Switch tone="indigo" on={settings.night.enabled} onToggle={() => update({ night: { ...settings.night, enabled: !settings.night.enabled } })} label="Night mode on or off" />}
+      >
+        <p className="text-sm font-semibold text-slate-500 mb-4">At night, after a few minutes without a touch, the kitchen screen switches to a dark clock. Touch it to wake.</p>
+        <div className={`grid grid-cols-3 gap-4 ${settings.night.enabled ? '' : 'opacity-40 pointer-events-none'}`}>
+          <label className="block">
+            <span className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">From</span>
+            <input type="time" className={inputClass} value={settings.night.start} onChange={e => update({ night: { ...settings.night, start: e.target.value } })} />
+          </label>
+          <label className="block">
+            <span className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Until</span>
+            <input type="time" className={inputClass} value={settings.night.end} onChange={e => update({ night: { ...settings.night, end: e.target.value } })} />
+          </label>
+          <label className="block">
+            <span className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">After</span>
+            <select className={inputClass} value={settings.night.idleMinutes} onChange={e => update({ night: { ...settings.night, idleMinutes: Number(e.target.value) } })}>
+              {[1, 2, 5, 10, 15].map(m => <option key={m} value={m}>{m} minute{m > 1 ? 's' : ''} idle</option>)}
+            </select>
+          </label>
+        </div>
+      </Card>
+
+      {/* THIS DEVICE */}
+      <Card title="This device">
+        <div className="flex items-center gap-4">
+          <div className="flex-1">
+            <p className="font-bold text-slate-800">Full screen</p>
+            <p className="text-sm font-semibold text-slate-500">Hide Home Assistant's top bar and side menu on this screen only. Turn it off here to get them back.</p>
+          </div>
+          <Switch tone="indigo" on={fullscreen} onToggle={() => setFullscreen(!fullscreen)} label="Full screen on or off" />
         </div>
       </Card>
 

@@ -9,7 +9,10 @@ import ShoppingList from './components/ShoppingList';
 import HomeScreen from './components/home/HomeScreen';
 import LightsView from './components/home/LightsView';
 import MusicView from './components/home/MusicView';
-import SettingsView from './components/home/SettingsView';
+import SettingsView, { CalendarStatus } from './components/home/SettingsView';
+import TimerTray from './components/home/TimerTray';
+import NightMode from './components/home/NightMode';
+import { loadCalendar } from './lib/calendar';
 import { HomeIcons } from './components/home/icons';
 import { useIsHome } from './lib/hass';
 import { apiUrl } from './lib/runtime';
@@ -82,6 +85,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
 
   // Share the current settings with the home screens (moods, rooms, Start cooking).
   useEffect(() => { settingsStore.set(withDefaults(settings)); }, [settings]);
+  const [calendarStatus, setCalendarStatus] = useState<CalendarStatus>({ status: 'loading', calendars: [] });
 
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [externallySelectedRecipeId, setExternallySelectedRecipeId] = useState<string | null>(null);
@@ -230,8 +234,6 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
       } else if (!lastSynced.current) {
         markSynced(stateRef.current);
       }
-
-      setCalendarEvents([]);
     } catch (err) { console.error(err); } finally { setIsLoading(false); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.token, spreadsheetId]);
@@ -321,6 +323,29 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
       window.removeEventListener('focus', onVisible);
     };
   }, [auth.isAuthenticated, pullChanges]);
+
+  // --- FAMILY CALENDAR ---
+  const chosenCalendars = JSON.stringify(withDefaults(settings).calendars);
+  const refreshCalendar = useCallback(async () => {
+    const token = tokenRef.current;
+    if (!token) return;
+    const result = await loadCalendar(token, JSON.parse(chosenCalendars));
+    if (result.ok) {
+      setCalendarEvents(result.events);
+      setCalendarStatus({ status: 'ok', calendars: result.calendars });
+    } else if (result.reason !== 'expired') {
+      setCalendarStatus(prev => ({ ...prev, status: result.reason }));
+    }
+  }, [chosenCalendars]);
+
+  useEffect(() => {
+    if (!auth.isAuthenticated) return;
+    refreshCalendar();
+    const timer = setInterval(() => { if (!document.hidden) refreshCalendar(); }, 10 * 60 * 1000);
+    const onVisible = () => { if (!document.hidden) refreshCalendar(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
+  }, [auth.isAuthenticated, auth.token, refreshCalendar]);
 
   // UPLOAD IMAGES
   const uploadToDrive = async (file: File): Promise<string | null> => {
@@ -540,11 +565,12 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
             onAddMeal={addMeal}
             onOpenRecipe={openRecipe}
             onNavigate={setCurrentView}
+            events={calendarEvents}
           />
         )}
         {currentView === View.Lights && isHome && <LightsView />}
         {currentView === View.Music && isHome && <MusicView />}
-        {currentView === View.Settings && isHome && <SettingsView settings={withDefaults(settings)} onChange={setSettings} />}
+        {currentView === View.Settings && isHome && <SettingsView settings={withDefaults(settings)} onChange={setSettings} calendar={calendarStatus} />}
         {currentView === View.Dashboard && (
           <Dashboard
             compact={isHome}
@@ -578,6 +604,9 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
           />
         )}
       </main>
+
+      <TimerTray />
+      {embedded && isHome && <NightMode events={calendarEvents} weeklyPlan={weeklyPlan} />}
     </div>
   );
 };

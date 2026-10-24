@@ -9,6 +9,7 @@ import { createRoot, Root } from 'react-dom/client';
 import App from './App';
 import { hassStore, Hass } from './lib/hass';
 import { setApiBase } from './lib/runtime';
+import { registerPanelHost } from './lib/kiosk';
 
 declare const __PANEL_CSS__: string;
 declare const __PANEL_PROPERTIES__: string;
@@ -58,6 +59,7 @@ class HomedashPanel extends HTMLElement {
 
   connectedCallback() {
     if (!this.root && hassStore.get()) this.mount();
+    registerPanelHost(this);
   }
 
   private mount() {
@@ -68,6 +70,7 @@ class HomedashPanel extends HTMLElement {
     const container = document.createElement('div');
     container.className = 'hd-root';
     shadow.append(style, container);
+    registerPanelHost(this);
     this.root = createRoot(container);
     this.root.render(
       <React.StrictMode>

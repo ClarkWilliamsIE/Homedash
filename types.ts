@@ -49,6 +49,9 @@ export interface CalendarEvent {
   summary: string;
   start: { dateTime?: string; date?: string };
   end: { dateTime?: string; date?: string };
+  location?: string;
+  calendarName?: string;
+  color?: string;
 }
 
 export enum View {
