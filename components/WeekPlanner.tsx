@@ -5,7 +5,7 @@
 import React, { useState } from 'react';
 import { Recipe, WeeklyPlan } from '../types';
 import RecipePicker from './RecipePicker';
-import { Btn, Icon, PageTitle, Sheet } from './ui';
+import { Btn, CustomMealForm, Icon, MealPhoto, PageTitle, Sheet, makeCustomMeal } from './ui';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -14,6 +14,7 @@ interface WeekPlannerProps {
   recipes: Recipe[];
   onAddMeal: (day: string, recipe: Recipe) => void;
   onRemoveMeal: (day: string, recipeId: string) => void;
+  onUpdateMeal: (day: string, meal: Recipe) => void;
   onMoveMeal: (source: string, target: string, recipeId: string) => void;
   onViewRecipe: (recipe: Recipe) => void;
   onResetWeek: () => void;
@@ -22,11 +23,12 @@ interface WeekPlannerProps {
 }
 
 const WeekPlanner: React.FC<WeekPlannerProps> = ({
-  weeklyPlan, recipes, onAddMeal, onRemoveMeal, onMoveMeal, onViewRecipe, onResetWeek, onOpenShopping, shoppingLeft,
+  weeklyPlan, recipes, onAddMeal, onRemoveMeal, onUpdateMeal, onMoveMeal, onViewRecipe, onResetWeek, onOpenShopping, shoppingLeft,
 }) => {
   const [pickingDay, setPickingDay] = useState<string | null>(null);
   const [selected, setSelected] = useState<{ day: string; recipe: Recipe } | null>(null);
   const [moving, setMoving] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const todayIdx = new Date().getDay();
   // Today first, then the rest of the week in order.
@@ -38,7 +40,7 @@ const WeekPlanner: React.FC<WeekPlannerProps> = ({
     return d.toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' });
   };
 
-  const closeSheet = () => { setSelected(null); setMoving(false); };
+  const closeSheet = () => { setSelected(null); setMoving(false); setEditing(false); };
 
   return (
     <div className="max-w-5xl mx-auto pb-16">
@@ -77,10 +79,12 @@ const WeekPlanner: React.FC<WeekPlannerProps> = ({
                       onClick={() => setSelected({ day, recipe: meal })}
                       className="flex items-center gap-3 p-1.5 pr-4 rounded-2xl bg-slate-50 hover:bg-indigo-50 text-left md:max-w-xs min-w-0"
                     >
-                      <img src={meal.imageUrl} alt="" className="w-14 h-14 rounded-xl object-cover shrink-0" />
+                      <MealPhoto meal={meal} className="w-14 h-14 rounded-xl shrink-0" />
                       <span className="min-w-0">
                         <span className="block font-semibold text-slate-900 leading-snug line-clamp-2">{meal.name}</span>
-                        {meal.tags[0] && <span className="block text-sm text-slate-500 truncate">{meal.tags[0]}</span>}
+                        {meal.isCustom
+                          ? meal.ingredients.length > 0 && <span className="block text-sm text-slate-500 truncate">{meal.ingredients.map(i => i.item).join(', ')}</span>
+                          : meal.tags[0] && <span className="block text-sm text-slate-500 truncate">{meal.tags[0]}</span>}
                       </span>
                     </button>
                   ))}
@@ -109,14 +113,34 @@ const WeekPlanner: React.FC<WeekPlannerProps> = ({
         />
       )}
 
-      <Sheet open={!!selected} onClose={closeSheet} title={selected ? (moving ? `Move to…` : selected.recipe.name) : ''}>
-        {selected && !moving && (
+      <Sheet open={!!selected} onClose={closeSheet} title={selected ? (moving ? `Move to…` : editing ? 'Edit' : selected.recipe.name) : ''}>
+        {selected && !moving && !editing && (
           <div className="space-y-2 pb-2">
-            <img src={selected.recipe.imageUrl} alt="" className="w-full h-40 object-cover rounded-2xl mb-3" />
-            <Btn size="lg" className="w-full" onClick={() => { onViewRecipe(selected.recipe); closeSheet(); }} icon={<Icon.Book className="w-5 h-5" />}>View recipe</Btn>
+            {selected.recipe.isCustom ? (
+              selected.recipe.ingredients.length > 0 && (
+                <div className="mb-3">
+                  <p className="text-sm font-semibold text-slate-700 mb-1.5">On the shopping list</p>
+                  <ul className="flex flex-wrap gap-1.5">
+                    {selected.recipe.ingredients.map((i, k) => <li key={k} className="px-3 py-1.5 rounded-full bg-slate-100 text-slate-700">{i.item}</li>)}
+                  </ul>
+                </div>
+              )
+            ) : (
+              <MealPhoto meal={selected.recipe} className="w-full h-40 rounded-2xl mb-3" />
+            )}
+            {selected.recipe.isCustom
+              ? <Btn size="lg" className="w-full" onClick={() => setEditing(true)} icon={<Icon.Plus className="w-5 h-5" />}>Edit title and items</Btn>
+              : <Btn size="lg" className="w-full" onClick={() => { onViewRecipe(selected.recipe); closeSheet(); }} icon={<Icon.Book className="w-5 h-5" />}>View recipe</Btn>}
             <Btn size="lg" variant="secondary" className="w-full" onClick={() => setMoving(true)} icon={<Icon.Week className="w-5 h-5" />}>Move to another day</Btn>
             <Btn size="lg" variant="danger" className="w-full" onClick={() => { onRemoveMeal(selected.day, selected.recipe.id); closeSheet(); }}>Take off {selected.day}</Btn>
           </div>
+        )}
+        {selected && editing && (
+          <CustomMealForm
+            initial={{ name: selected.recipe.name, items: selected.recipe.ingredients.map(i => i.item) }}
+            submitLabel="Save"
+            onSubmit={(name, items) => { onUpdateMeal(selected.day, makeCustomMeal(name, items, selected.recipe.id) as Recipe); closeSheet(); }}
+          />
         )}
         {selected && moving && (
           <div className="grid grid-cols-2 gap-2 pb-2">

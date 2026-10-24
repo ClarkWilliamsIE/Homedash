@@ -15,7 +15,7 @@ import { eventsOn, eventTime } from '../../lib/calendar';
 import BinNotifier from '../BinNotifier';
 import FridgeNotes from '../FridgeNotes';
 import RecipePicker from '../RecipePicker';
-import { Btn, Icon, Panel } from '../ui';
+import { Btn, Icon, MealPhoto, Panel } from '../ui';
 import { LightRow, MoreLink } from './controls';
 import { HomeIcons } from './icons';
 import { NowPlaying, ProfileGrid } from './music';
@@ -129,6 +129,29 @@ const Tonight: React.FC<{
     );
   }
 
+  if (main.isCustom) {
+    // A one-off meal (out for a BBQ, takeaways): no photo or method, just the plan and what to bring.
+    return (
+      <section className="bg-white rounded-3xl border border-slate-200/70 shadow-sm p-6 md:p-8 flex gap-5 md:gap-8 items-start">
+        <MealPhoto meal={main} big className="hidden md:flex w-40 h-40 rounded-3xl shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-orange-600">Tonight</p>
+          <h2 className="font-display text-[2rem] md:text-[2.6rem] leading-[1.1] text-slate-900 mt-1">{main.name}</h2>
+          {main.ingredients.length > 0 && (
+            <ul className="flex flex-wrap gap-1.5 mt-3">
+              {main.ingredients.map((i, k) => <li key={k} className="px-3 py-1.5 rounded-full bg-slate-100 text-slate-700">{i.item}</li>)}
+            </ul>
+          )}
+          {meals.length > 1 && <p className="text-slate-500 mt-3">Also {meals.slice(1).map(m => m.name).join(', ')}</p>}
+          <div className="flex flex-wrap gap-2 mt-6">
+            <Btn size="lg" variant="secondary" onClick={() => onOpen(main)}>Change</Btn>
+            {isHome && <DinnerButton />}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="bg-white rounded-3xl border border-slate-200/70 shadow-sm overflow-hidden md:grid md:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
       <button onClick={() => onOpen(main)} className="block relative bg-slate-200 aspect-[16/10] md:aspect-auto md:min-h-[19rem] w-full" aria-label={`Open ${main.name}`}>
@@ -228,7 +251,7 @@ const ComingUp: React.FC<{ plan: WeeklyPlan; fresh: (r: Recipe) => Recipe; onOpe
               <span className="w-24 shrink-0 text-slate-500">{o === 1 ? 'Tomorrow' : day}</span>
               {meals.length ? (
                 <button onClick={() => onOpen(meals[0])} className="flex-1 min-w-0 flex items-center gap-2.5 text-left">
-                  <img src={meals[0].imageUrl} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0" />
+                  <MealPhoto meal={meals[0]} className="w-9 h-9 rounded-lg shrink-0 !text-base" />
                   <span className="font-medium text-slate-900 truncate">{meals.map(m => m.name).join(', ')}</span>
                 </button>
               ) : (

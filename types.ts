@@ -30,6 +30,8 @@ export interface Recipe {
   tags: string[];
   isFavorite?: boolean; // New Field
   isNew?: boolean;      // New Field
+  /** A one-off meal on the plan (a BBQ, takeaways): just a title and a few things to buy. */
+  isCustom?: boolean;
 }
 
 export type DayOfWeek = 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday';

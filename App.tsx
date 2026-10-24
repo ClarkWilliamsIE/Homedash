@@ -537,12 +537,15 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   };
 
   const openRecipe = (recipe: Recipe, cook = false) => {
+    // One-off meals have no recipe page; they're edited from the week.
+    if (recipe.isCustom) { navigate(View.Dashboard); return; }
     setExternallySelectedRecipeId(cook ? `cook:${recipe.id}` : recipe.id);
     navigate(View.Recipes);
   };
 
   const addMeal = (d: string, r: Recipe) => setWeeklyPlan(p => ({ ...p, [d]: [...(p[d] || []), r] }));
   const removeMeal = (d: string, id: string) => setWeeklyPlan(p => ({ ...p, [d]: p[d].filter(r => r.id !== id) }));
+  const updateMeal = (d: string, meal: Recipe) => setWeeklyPlan(p => ({ ...p, [d]: p[d].map(r => r.id === meal.id ? meal : r) }));
   const moveMeal = (s: string, t: string, id: string) => setWeeklyPlan(p => {
     const next = { ...p };
     const move = next[s].find(r => r.id === id);
@@ -616,7 +619,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   const status: null | { tone: 'offline' | 'saving'; text: string } =
     !online ? { tone: 'offline', text: unsaved ? 'Offline · changes saved on this device' : 'Offline' }
       : isTokenExpired || (!auth.isAuthenticated && cached) ? { tone: 'saving', text: 'Connecting…' }
-        : isSyncing || unsaved ? { tone: 'saving', text: 'Saving…' } : null;
+        : isSyncing ? { tone: 'saving', text: 'Saving…' } : null;
 
   const badge = (n?: number) => n ? (
     <span className="absolute -top-1 left-1/2 ml-2 min-w-[1.25rem] h-5 px-1 rounded-full bg-orange-500 text-white text-[11px] font-bold flex items-center justify-center">{n > 99 ? '99+' : n}</span>
@@ -680,6 +683,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
           recipes={recipes}
           onAddMeal={addMeal}
           onRemoveMeal={removeMeal}
+          onUpdateMeal={updateMeal}
           onMoveMeal={moveMeal}
           onViewRecipe={openRecipe}
           onResetWeek={handleResetWeek}

@@ -134,3 +134,59 @@ export const Icon = {
   Next: (p: { className?: string }) => <svg className={p.className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg>,
   Cloud: (p: { className?: string }) => <svg className={p.className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.7-9h1.8a4.5 4.5 0 1 1 0 9Z" /><path d="m2 2 20 20" /></svg>,
 };
+
+// --- A meal's photo, or for a one-off meal with no photo, a plain tile with its first letter ---
+export const MealPhoto: React.FC<{ meal: { name: string; imageUrl?: string; isCustom?: boolean }; className?: string; big?: boolean }> = ({ meal, className = '', big }) =>
+  meal.imageUrl && !meal.isCustom
+    ? <img src={meal.imageUrl} alt="" className={`object-cover ${className}`} />
+    : (
+      <span aria-hidden className={`flex items-center justify-center bg-orange-100 text-orange-700 font-display ${big ? 'text-7xl' : 'text-xl'} ${className}`}>
+        {meal.name.trim().charAt(0).toUpperCase() || '?'}
+      </span>
+    );
+
+/** Make a one-off meal (title + a few things to buy) that sits on the plan like a recipe. */
+export const makeCustomMeal = (name: string, items: string[], id?: string) => ({
+  id: id || `custom-${Date.now()}`,
+  name: name.trim(),
+  ingredients: items.map(i => i.trim()).filter(Boolean).map(item => ({ amount: '', unit: '', item })),
+  instructions: [],
+  imageUrl: '',
+  tags: [],
+  isCustom: true,
+});
+
+/** Form for a one-off meal: a title and a few things to buy, one per line. */
+export const CustomMealForm: React.FC<{
+  initial?: { name: string; items: string[] };
+  submitLabel: string;
+  onSubmit: (name: string, items: string[]) => void;
+}> = ({ initial, submitLabel, onSubmit }) => {
+  const [name, setName] = React.useState(initial?.name || '');
+  const [items, setItems] = React.useState<string[]>(initial?.items?.length ? [...initial.items, ''] : ['', '']);
+  const setItem = (i: number, v: string) => setItems(prev => {
+    const next = prev.map((x, j) => (j === i ? v : x));
+    // Always keep one empty line ready for the next item.
+    if (next[next.length - 1].trim()) next.push('');
+    return next;
+  });
+  const field = 'w-full h-12 bg-slate-100 rounded-2xl px-4 text-[16px] outline-none focus:bg-white focus:ring-2 focus:ring-indigo-200';
+  return (
+    <form onSubmit={e => { e.preventDefault(); if (name.trim()) onSubmit(name, items.filter(i => i.trim())); }} className="space-y-4 pb-2">
+      <div>
+        <label htmlFor="cm-name" className="block text-sm font-semibold text-slate-700 mb-1.5">What's for dinner?</label>
+        <input id="cm-name" autoFocus className={field} value={name} onChange={e => setName(e.target.value)} placeholder="BBQ at the Smiths" />
+      </div>
+      <div>
+        <span className="block text-sm font-semibold text-slate-700 mb-1.5">Things to buy or bring (optional)</span>
+        <div className="space-y-2">
+          {items.map((it, i) => (
+            <input key={i} aria-label={`Item ${i + 1}`} className={field} value={it} onChange={e => setItem(i, e.target.value)} placeholder={i === 0 ? 'Sausages' : i === 1 ? 'Potato salad' : 'Another item'} />
+          ))}
+        </div>
+        <p className="text-sm text-slate-500 mt-2">These go on the shopping list.</p>
+      </div>
+      <Btn type="submit" size="lg" className="w-full" disabled={!name.trim()}>{submitLabel}</Btn>
+    </form>
+  );
+};

@@ -1,7 +1,7 @@
 // components/RecipePicker.tsx
 import React, { useState, useMemo } from 'react';
 import { Recipe } from '../types';
-import { Icon, Sheet } from './ui';
+import { CustomMealForm, Icon, Sheet, makeCustomMeal } from './ui';
 
 interface RecipePickerProps {
   recipes: Recipe[];
@@ -19,6 +19,7 @@ const FILTERS = [
 const RecipePicker: React.FC<RecipePickerProps> = ({ recipes, onSelect, onClose, title = 'Choose a recipe' }) => {
   const [search, setSearch] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'favorites' | 'new'>('all');
+  const [custom, setCustom] = useState(false);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -29,6 +30,15 @@ const RecipePicker: React.FC<RecipePickerProps> = ({ recipes, onSelect, onClose,
       return matches;
     }).sort((a, b) => Number(!!b.isFavorite) - Number(!!a.isFavorite) || a.name.localeCompare(b.name));
   }, [recipes, search, filterMode]);
+
+  if (custom) {
+    return (
+      <Sheet open onClose={onClose} title="Something else">
+        <button onClick={() => setCustom(false)} className="flex items-center gap-1 text-sm font-semibold text-indigo-700 mb-4"><Icon.Back className="w-4 h-4" /> Back to recipes</button>
+        <CustomMealForm submitLabel="Add to the plan" onSubmit={(name, items) => onSelect(makeCustomMeal(name, items) as Recipe)} />
+      </Sheet>
+    );
+  }
 
   return (
     <Sheet open onClose={onClose} title={title}>
@@ -55,6 +65,14 @@ const RecipePicker: React.FC<RecipePickerProps> = ({ recipes, onSelect, onClose,
           ))}
         </div>
       </div>
+
+      <button onClick={() => setCustom(true)} className="w-full flex items-center gap-4 p-2 mb-1 rounded-2xl hover:bg-orange-50 text-left">
+        <span className="w-16 h-16 rounded-xl bg-orange-100 text-orange-700 flex items-center justify-center shrink-0"><Icon.Plus className="w-6 h-6" /></span>
+        <span className="flex-1 min-w-0">
+          <span className="block font-semibold text-slate-900">Something else</span>
+          <span className="block text-sm text-slate-500">Going out, a BBQ, takeaways: add a title and a few items</span>
+        </span>
+      </button>
 
       {filtered.length === 0 ? (
         <p className="text-center text-slate-500 py-10">No recipes match.</p>
