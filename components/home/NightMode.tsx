@@ -64,7 +64,7 @@ const NightMode: React.FC<{ events: CalendarEvent[]; weeklyPlan: WeeklyPlan }> =
       onPointerDown={() => setLastTouch(Date.now())}
     >
       <div className="text-center transition-transform duration-[3000ms]" style={{ transform: `translate(${(drift - 5) * 6}px, ${(drift % 5 - 2) * 8}px)` }}>
-        <p className="text-[9rem] leading-none font-black tracking-tighter text-zinc-600 tabular-nums">
+        <p className="text-[9rem] leading-none font-semibold text-zinc-600 tabular-nums">
           {now.toLocaleTimeString('en-NZ', { hour: 'numeric', minute: '2-digit', hour12: true }).replace(/\s?[ap]m$/i, '')}
         </p>
         <p className="text-2xl font-bold text-zinc-700 mt-3">

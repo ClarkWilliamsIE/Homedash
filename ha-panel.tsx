@@ -17,7 +17,7 @@ declare const __PANEL_PROPERTIES__: string;
 // The PIN login and recipe import live on the Vercel site this script was loaded from.
 setApiBase(new URL(import.meta.url).origin);
 
-const FONT_URL = 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap';
+const FONT_URL = 'https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=Young+Serif&display=swap';
 
 const ensureDocumentStyles = () => {
   if (document.getElementById('homedash-global')) return;

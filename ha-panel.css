@@ -1,24 +1,4 @@
-/* ha-panel.css — styles for Homedash inside Home Assistant.
-   Compiled with Tailwind by scripts/build-ha.mjs (the Vercel site still uses the Tailwind CDN). */
-
-@import "tailwindcss";
-
-@theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-}
-
-/* Keep Tailwind 3 defaults the existing Homedash screens were designed with */
-@layer base {
-  *, ::after, ::before, ::backdrop, ::file-selector-button {
-    border-color: var(--color-slate-200, currentColor);
-  }
-  input::placeholder, textarea::placeholder {
-    color: var(--color-slate-400);
-  }
-  button:not(:disabled), [role="button"]:not([aria-disabled="true"]) {
-    cursor: pointer;
-  }
-}
+/* ha-panel.css — extra rules for Homedash inside Home Assistant (added to homedash.css). */
 
 /* The card fills the screen under Home Assistant's top bar */
 :host {
@@ -40,14 +20,4 @@
 
 .hd-root {
   height: 100%;
-}
-
-.glass {
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(8px);
-}
-
-/* Touch screens can't hover, so show the hover-only buttons */
-@media (hover: none) {
-  .touch-show { opacity: 1 !important; }
 }

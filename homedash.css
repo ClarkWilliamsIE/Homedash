@@ -1,0 +1,119 @@
+/* homedash.css — the one stylesheet for Homedash, on the website and inside Home Assistant.
+   Compiled with Tailwind by scripts/build-ha.mjs into dist/ha/homedash.css (website)
+   and into the Home Assistant panel script.
+
+   Look: a family cookbook on the kitchen bench. Oat paper, kawakawa green for actions,
+   clay for "tonight", honey for lights that are on, Young Serif headings. */
+
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Young Serif", Georgia, "Times New Roman", serif;
+
+  /* Paper */
+  --color-white: #fffcf7;
+
+  /* Kawakawa green (replaces Tailwind's indigo across the app) */
+  --color-indigo-50: #eff5f1;
+  --color-indigo-100: #dce9e1;
+  --color-indigo-200: #bad3c4;
+  --color-indigo-300: #8fb7a0;
+  --color-indigo-400: #62947a;
+  --color-indigo-500: #43785f;
+  --color-indigo-600: #33634d;
+  --color-indigo-700: #2a5140;
+  --color-indigo-800: #234335;
+  --color-indigo-900: #1d372c;
+  --color-indigo-950: #0f1f18;
+
+  /* Deeper bush green (replaces violet, used in gradients) */
+  --color-violet-400: #5f7d6a;
+  --color-violet-500: #4e6e5a;
+  --color-violet-600: #3f5d4b;
+  --color-violet-700: #2f4a3b;
+
+  /* Warm neutrals (replaces slate) */
+  --color-slate-50: #f4efe6;
+  --color-slate-100: #ece5d9;
+  --color-slate-200: #e0d6c6;
+  --color-slate-300: #cbbfac;
+  --color-slate-400: #a39784;
+  --color-slate-500: #7f7364;
+  --color-slate-600: #645a4d;
+  --color-slate-700: #4c443a;
+  --color-slate-800: #37312a;
+  --color-slate-900: #26221d;
+  --color-slate-950: #171410;
+
+  /* Clay (replaces orange) */
+  /* Honey, for lights that are on */
+  --color-amber-50: #fbf5e6;
+  --color-amber-100: #f6e8c6;
+  --color-amber-200: #efd79c;
+  --color-amber-300: #e7c272;
+  --color-amber-400: #dcaa4b;
+  --color-amber-500: #c99232;
+  --color-amber-600: #a87526;
+  --color-amber-700: #855c20;
+  --color-amber-800: #6a491d;
+  --color-orange-50: #fbf0ea;
+  --color-orange-100: #f5decf;
+  --color-orange-200: #ebbda1;
+  --color-orange-300: #dd9672;
+  --color-orange-400: #cc7550;
+  --color-orange-500: #b85d37;
+  --color-orange-600: #9e4a2a;
+  --color-orange-700: #7f3b23;
+
+  /* Warm shadows */
+  --shadow-sm: 0 1px 2px 0 rgb(70 50 25 / 0.06), 0 1px 1px 0 rgb(70 50 25 / 0.04);
+  --shadow-md: 0 4px 10px -2px rgb(70 50 25 / 0.08), 0 2px 4px -2px rgb(70 50 25 / 0.06);
+  --shadow-lg: 0 10px 24px -8px rgb(70 50 25 / 0.14), 0 4px 8px -4px rgb(70 50 25 / 0.06);
+  --shadow-xl: 0 18px 36px -12px rgb(70 50 25 / 0.18), 0 6px 12px -6px rgb(70 50 25 / 0.08);
+  --shadow-2xl: 0 28px 60px -16px rgb(70 50 25 / 0.28);
+}
+
+@layer base {
+  *, ::after, ::before, ::backdrop, ::file-selector-button {
+    border-color: var(--color-slate-200, currentColor);
+  }
+  input::placeholder, textarea::placeholder {
+    color: var(--color-slate-400);
+  }
+  button:not(:disabled), [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-indigo-500);
+    outline-offset: 2px;
+  }
+  h1, h2, h3 {
+    text-wrap: balance;
+  }
+}
+
+.glass {
+  background: rgb(255 252 247 / 0.85);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* Touch screens can't hover, so show the hover-only buttons */
+@media (hover: none) {
+  .touch-show { opacity: 1 !important; }
+}
+
+/* Room for the iPhone home bar and notch */
+.pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.pt-safe { padding-top: env(safe-area-inset-top, 0px); }
+.pb-safe-4 { padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px)); }
+.pt-safe-4 { padding-top: max(1rem, env(safe-area-inset-top, 0px)); }
+.mt-safe { margin-top: env(safe-area-inset-top, 0px); }
+
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

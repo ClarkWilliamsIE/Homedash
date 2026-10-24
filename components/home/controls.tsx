@@ -28,7 +28,7 @@ export const FillSlider: React.FC<{
     else pending.current = setTimeout(() => { last.current = Date.now(); onCommit(v); }, 300);
   };
 
-  const fill = tone === 'amber' ? 'bg-amber-300' : 'bg-indigo-500';
+  const fill = tone === 'amber' ? 'bg-amber-300' : 'bg-indigo-300';
   return (
     <div className={`relative rounded-xl overflow-hidden bg-slate-100 ${disabled ? 'opacity-40' : ''} ${className}`}>
       <div className={`absolute inset-y-0 left-0 ${fill} transition-[width] duration-150`} style={{ width: `${Math.max(local, 0)}%` }} />
@@ -70,10 +70,10 @@ export const Switch: React.FC<{ on: boolean; onToggle: () => void; tone?: 'amber
 };
 
 export const Card: React.FC<{ title?: string; action?: React.ReactNode; className?: string; children: React.ReactNode }> = ({ title, action, className = '', children }) => (
-  <section className={`bg-white rounded-[2rem] p-6 shadow-sm border border-slate-100 ${className}`}>
+  <section className={`bg-white rounded-3xl p-5 md:p-6 shadow-sm border border-slate-200/70 ${className}`}>
     {(title || action) && (
-      <div className="flex items-center justify-between mb-4">
-        {title && <h3 className="text-sm font-black uppercase tracking-widest text-slate-400">{title}</h3>}
+      <div className="flex items-center justify-between gap-3 mb-4">
+        {title && <h2 className="font-display text-xl text-slate-900">{title}</h2>}
         {action}
       </div>
     )}
@@ -82,7 +82,7 @@ export const Card: React.FC<{ title?: string; action?: React.ReactNode; classNam
 );
 
 export const MoreLink: React.FC<{ onClick: () => void; children: React.ReactNode }> = ({ onClick, children }) => (
-  <button onClick={onClick} className="flex items-center gap-0.5 text-xs font-bold text-indigo-600 hover:text-indigo-800">
+  <button onClick={onClick} className="flex items-center gap-0.5 text-sm font-semibold text-indigo-700 hover:text-indigo-900 whitespace-nowrap">
     {children}
     <HomeIcons.Chevron className="w-4 h-4" />
   </button>
@@ -118,7 +118,7 @@ export const LightRow: React.FC<{ name: string; entity?: HassEntity; entityId: s
         onKeyDown={e => { if (!offline && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggleLight(entityId); } }}
         className={`w-full flex items-center gap-3 text-left cursor-pointer select-none ${offline ? 'opacity-50' : ''}`}
       >
-        <span className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${on ? 'bg-amber-400 text-white shadow-md shadow-amber-200' : 'bg-white text-slate-400 border border-slate-200'}`}>
+        <span className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${on ? 'bg-amber-400 text-white shadow-md' : 'bg-white text-slate-400 border border-slate-200'}`}>
           <HomeIcons.Bulb className="w-5 h-5" />
         </span>
         <span className="flex-1 min-w-0">

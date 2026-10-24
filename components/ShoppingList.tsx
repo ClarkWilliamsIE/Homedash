@@ -1,8 +1,11 @@
 // components/ShoppingList.tsx
+// The shopping list, laid out for using in the supermarket: big rows grouped by aisle,
+// tap to put something in the trolley, and "Finish shop" when you're done.
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { WeeklyPlan, Recipe } from '../types';
-import { ManualItem } from '../App';
+import { WeeklyPlan } from '../types';
+import type { ManualItem } from '../lib/merge';
+import { Btn, Icon, PageTitle } from './ui';
 
 interface ShoppingListProps {
   weeklyPlan: WeeklyPlan;
@@ -18,11 +21,98 @@ interface ShoppingListProps {
   onUpdateChecked: (items: string[]) => void;
 }
 
-const ShoppingList: React.FC<ShoppingListProps> = ({ 
-  weeklyPlan, 
-  authToken, 
+// --- Aisles ---
+// Rough supermarket order. The longest matching keyword wins, so "coconut milk" isn't dairy.
+const AISLES: { name: string; words: string[] }[] = [
+  { name: 'Fruit & veg', words: ['apple', 'banana', 'orange', 'lemon', 'lime', 'mandarin', 'kiwifruit', 'feijoa', 'berries', 'berry', 'strawberr', 'blueberr', 'grape', 'pear', 'peach', 'plum', 'mango', 'pineapple', 'melon', 'avocado', 'tomato', 'potato', 'kumara', 'pumpkin', 'carrot', 'onion', 'shallot', 'spring onion', 'leek', 'garlic', 'ginger', 'chilli', 'capsicum', 'courgette', 'zucchini', 'eggplant', 'aubergine', 'cucumber', 'lettuce', 'salad', 'spinach', 'silverbeet', 'kale', 'rocket', 'cabbage', 'broccoli', 'broccolini', 'cauliflower', 'celery', 'mushroom', 'corn', 'peas', 'beans', 'bok choy', 'pak choy', 'beetroot', 'parsnip', 'asparagus', 'herb', 'basil', 'parsley', 'coriander', 'cilantro', 'mint', 'thyme', 'rosemary', 'dill', 'chives', 'sprouts'] },
+  { name: 'Bakery', words: ['bread', 'loaf', 'bun', 'roll', 'bagel', 'croissant', 'pita', 'naan', 'sourdough', 'muffin', 'crumpet'] },
+  { name: 'Meat & fish', words: ['chicken', 'beef', 'mince', 'steak', 'lamb', 'pork', 'bacon', 'ham', 'sausage', 'chorizo', 'salami', 'prosciutto', 'turkey', 'fish', 'salmon', 'snapper', 'tarakihi', 'prawn', 'shrimp', 'mussel', 'tofu', 'tempeh'] },
+  { name: 'Dairy & eggs', words: ['milk', 'cream', 'butter', 'cheese', 'cheddar', 'parmesan', 'mozzarella', 'feta', 'halloumi', 'ricotta', 'yoghurt', 'yogurt', 'egg', 'sour cream', 'creme fraiche', 'custard', 'hummus', 'dip'] },
+  { name: 'Tins, pasta & dry goods', words: ['rolled oats', 'coconut milk', 'coconut cream', 'peanut butter', 'stock', 'broth', 'tinned', 'canned', 'tin of', 'can of', 'passata', 'tomato paste', 'chopped tomatoes', 'crushed tomatoes', 'baked beans', 'chickpea', 'lentil', 'kidney bean', 'black bean', 'cannellini', 'rice', 'pasta', 'spaghetti', 'penne', 'fettuccine', 'lasagne sheet', 'noodle', 'couscous', 'quinoa', 'flour', 'sugar', 'oats', 'cereal', 'muesli', 'honey', 'jam', 'vegemite', 'marmite', 'oil', 'vinegar', 'soy sauce', 'fish sauce', 'oyster sauce', 'sauce', 'mustard', 'mayo', 'ketchup', 'curry paste', 'spice', 'paprika', 'cumin', 'coriander seed', 'turmeric', 'cinnamon', 'oregano', 'chilli flakes', 'stock cube', 'baking', 'yeast', 'cocoa', 'chocolate', 'nuts', 'almond', 'cashew', 'peanut', 'raisin', 'sultana', 'crackers', 'chips', 'biscuit', 'salt', 'pepper', 'tuna', 'salmon tin', 'taco', 'tortilla', 'wrap', 'breadcrumb', 'panko', 'sesame', 'cornflour', 'gravy', 'tahini', 'syrup'] },
+  { name: 'Frozen', words: ['frozen', 'ice cream', 'ice block', 'fish fingers', 'puff pastry', 'pastry', 'hash brown'] },
+  { name: 'Drinks', words: ['juice', 'coffee', 'tea', 'water', 'soda', 'lemonade', 'beer', 'wine', 'cordial', 'kombucha'] },
+  { name: 'Household', words: ['toilet', 'paper towel', 'tissue', 'detergent', 'dishwash', 'soap', 'shampoo', 'conditioner', 'toothpaste', 'nappies', 'wipes', 'bin bag', 'rubbish bag', 'glad wrap', 'foil', 'baking paper', 'sponge', 'cleaner', 'laundry', 'battery', 'batteries'] },
+];
+const OTHER = 'Everything else';
+const AISLE_ORDER = [...AISLES.map(a => a.name), OTHER];
+
+const aisleCache = new Map<string, string>();
+export const aisleFor = (name: string): string => {
+  const key = name.toLowerCase();
+  const hit = aisleCache.get(key);
+  if (hit) return hit;
+  // Look for the most specific (longest) keyword across all aisles, so "coconut milk" beats "milk".
+  let best = OTHER, bestLen = 0;
+  for (const aisle of AISLES) {
+    for (const w of aisle.words) {
+      if (w.length > bestLen && new RegExp(`(^|[^a-z])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(key)) {
+        best = aisle.name; bestLen = w.length;
+      }
+    }
+  }
+  aisleCache.set(key, best);
+  return best;
+};
+
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** Recipe ingredients for the week that still need buying: name → the meals that use it. */
+const recipeNeeds = (weeklyPlan: WeeklyPlan, hidden: string[], cleared: string[]) => {
+  const list = new Map<string, string[]>();
+  Object.values(weeklyPlan).flat().forEach(recipe => {
+    recipe.ingredients.forEach(ing => {
+      const clean = ing.item.toLowerCase().trim();
+      if (!clean || hidden.includes(clean) || cleared.includes(clean)) return;
+      const uses = list.get(clean) || [];
+      uses.push(recipe.name);
+      list.set(clean, uses);
+    });
+  });
+  return list;
+};
+
+/** How many things are still to get (shown as the badge on the Shopping tab). */
+export const openItemCount = (s: {
+  weeklyPlan: WeeklyPlan; manualItems: ManualItem[]; hiddenIngredients: string[]; clearedIngredients: string[]; checkedIngredients: string[];
+}) => {
+  const needs = recipeNeeds(s.weeklyPlan, s.hiddenIngredients, s.clearedIngredients);
+  let n = s.manualItems.filter(i => !i.checked).length;
+  needs.forEach((_, name) => { if (!s.checkedIngredients.includes(name)) n++; });
+  return n;
+};
+
+interface Row {
+  key: string;
+  name: string;
+  detail?: string;
+  checked: boolean;
+  aisle: string;
+  toggle: () => void;
+}
+
+const ItemRow: React.FC<{ row: Row }> = ({ row }) => (
+  <li>
+    <button
+      onClick={row.toggle}
+      aria-pressed={row.checked}
+      className={`w-full min-h-[3.5rem] flex items-center gap-4 px-4 py-2.5 text-left transition-colors ${row.checked ? 'bg-transparent' : 'hover:bg-slate-50 active:bg-indigo-50'}`}
+    >
+      <span className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center border-2 transition-colors ${row.checked ? 'bg-indigo-700 border-indigo-700 text-white' : 'border-slate-300 bg-white'}`}>
+        {row.checked && <Icon.Check className="w-4 h-4" />}
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className={`block text-[17px] leading-snug ${row.checked ? 'text-slate-400 line-through decoration-slate-300' : 'text-slate-900 font-medium'}`}>{row.name}</span>
+        {row.detail && !row.checked && <span className="block text-sm text-slate-500 truncate">{row.detail}</span>}
+      </span>
+    </button>
+  </li>
+);
+
+const ShoppingList: React.FC<ShoppingListProps> = ({
+  weeklyPlan,
+  authToken,
   spreadsheetId,
-  manualItems, 
+  manualItems,
   onUpdateItems,
   hiddenIngredients,
   onUpdateHidden,
@@ -31,226 +121,202 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
   checkedIngredients,
   onUpdateChecked
 }) => {
-  const [manualItem, setManualItem] = useState('');
-  const [sheetSyncStatus, setSheetSyncStatus] = useState<'idle' | 'syncing' | 'error'>('idle');
-  
+  const [text, setText] = useState('');
+  const [showTrolley, setShowTrolley] = useState(false);
+  const [showPantry, setShowPantry] = useState(false);
+  const [undo, setUndo] = useState<null | { items: ManualItem[]; cleared: string[]; checked: string[]; count: number }>(null);
+  const undoTimer = useRef<any>(null);
   const syncTimeout = useRef<any>(null);
 
-  const selectedRecipes = useMemo(() => {
-    return Object.values(weeklyPlan).flat();
-  }, [weeklyPlan]);
+  const needs = useMemo(() => recipeNeeds(weeklyPlan, hiddenIngredients, clearedIngredients), [weeklyPlan, hiddenIngredients, clearedIngredients]);
 
-  const aggregatedIngredients = useMemo(() => {
-    const list: Record<string, number> = {};
-    selectedRecipes.forEach(recipe => {
-      recipe.ingredients.forEach(ing => {
-        const clean = ing.item.toLowerCase().trim();
-        // Item is hidden if it's a permanent staple OR it was marked as bought for this week
-        if (!hiddenIngredients.includes(clean) && !clearedIngredients.includes(clean)) {
-          list[clean] = (list[clean] || 0) + 1;
-        }
-      });
-    });
-    return Object.entries(list).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [selectedRecipes, hiddenIngredients, clearedIngredients]);
-
-  // -- SHEET SYNC LOGIC --
+  // Keep the "ShoppingList" tab of the Google Sheet up to date (handy for printing).
   useEffect(() => {
-    if (!authToken || !spreadsheetId) return;
+    if (!authToken || !spreadsheetId || !navigator.onLine) return;
     if (syncTimeout.current) clearTimeout(syncTimeout.current);
-    setSheetSyncStatus('syncing');
-    
     syncTimeout.current = setTimeout(async () => {
       try {
         const values = [
-          ['Date', new Date().toLocaleDateString()],
+          ['Date', new Date().toLocaleDateString('en-NZ')],
           ['Category', 'Item'],
-          ...aggregatedIngredients.map(([item, count]) => ['Recipe', `${item} ${count > 1 ? `(x${count})` : ''}`]),
+          ...[...needs.entries()].sort().map(([item, uses]) => ['Recipe', `${item} ${uses.length > 1 ? `(x${uses.length})` : ''}`]),
           ...manualItems.map(item => ['Manual', item.name])
         ];
-
-        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/ShoppingList!A:C:clear`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${authToken}` }
-        });
-
+        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/ShoppingList!A:C:clear`, { method: 'POST', headers: { Authorization: `Bearer ${authToken}` } });
         await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/ShoppingList!A1?valueInputOption=USER_ENTERED`, {
           method: 'PUT',
           headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ values })
         });
-        
-        setSheetSyncStatus('idle');
-      } catch (err) {
-        console.error("Sheet sync failed", err);
-        setSheetSyncStatus('error');
-      }
-    }, 3000);
-
+      } catch (err) { console.error("Sheet sync failed", err); }
+    }, 5000);
     return () => clearTimeout(syncTimeout.current);
-  }, [aggregatedIngredients, manualItems, authToken, spreadsheetId]);
+  }, [needs, manualItems, authToken, spreadsheetId]);
 
-
-  // -- INTERACTION HANDLERS --
-
-  const addManualItem = () => {
-    if (!manualItem.trim()) return;
-    
-    // If we're manually adding something that was previously bought/cleared,
-    // we should bring it back into view.
-    const clean = manualItem.toLowerCase().trim();
-    onUpdateCleared(clearedIngredients.filter(i => i !== clean));
-    
-    onUpdateItems([...manualItems, { id: Date.now().toString(), name: manualItem.trim(), checked: false }]);
-    setManualItem('');
+  const addItem = () => {
+    const name = text.trim();
+    if (!name) return;
+    onUpdateCleared(clearedIngredients.filter(i => i !== name.toLowerCase()));
+    onUpdateItems([...manualItems, { id: Date.now().toString(), name: cap(name), checked: false }]);
+    setText('');
   };
 
-  const toggleManualItem = (id: string) => {
-    onUpdateItems(manualItems.map(i => i.id === id ? { ...i, checked: !i.checked } : i));
-  };
+  const rows: Row[] = useMemo(() => {
+    const out: Row[] = manualItems.map(item => ({
+      key: `m-${item.id}`,
+      name: item.name,
+      checked: item.checked,
+      aisle: aisleFor(item.name),
+      toggle: () => onUpdateItems(manualItems.map(i => i.id === item.id ? { ...i, checked: !i.checked } : i)),
+    }));
+    [...needs.entries()].forEach(([name, uses]) => {
+      const checked = checkedIngredients.includes(name);
+      const meals = [...new Set(uses)];
+      out.push({
+        key: `r-${name}`,
+        name: cap(name),
+        detail: `For ${meals.join(', ')}${uses.length > meals.length ? ` (×${uses.length})` : ''}`,
+        checked,
+        aisle: aisleFor(name),
+        toggle: () => onUpdateChecked(checked ? checkedIngredients.filter(i => i !== name) : [...checkedIngredients, name]),
+      });
+    });
+    return out;
+  }, [manualItems, needs, checkedIngredients, onUpdateItems, onUpdateChecked]);
 
-  const toggleRecipeItem = (name: string) => {
-    if (checkedIngredients.includes(name)) {
-      onUpdateChecked(checkedIngredients.filter(i => i !== name));
-    } else {
-      onUpdateChecked([...checkedIngredients, name]);
-    }
-  };
+  const toGet = rows.filter(r => !r.checked);
+  const inTrolley = rows.filter(r => r.checked);
+  const groups = AISLE_ORDER
+    .map(aisle => ({ aisle, rows: toGet.filter(r => r.aisle === aisle).sort((a, b) => a.name.localeCompare(b.name)) }))
+    .filter(g => g.rows.length);
 
-  const clearSelected = () => {
+  const finishShop = () => {
+    const snapshot = { items: manualItems, cleared: clearedIngredients, checked: checkedIngredients, count: inTrolley.length };
     onUpdateItems(manualItems.filter(i => !i.checked));
-    // Move checked recipe items into the "bought this week" list
     onUpdateCleared([...clearedIngredients, ...checkedIngredients]);
     onUpdateChecked([]);
+    setUndo(snapshot);
+    clearTimeout(undoTimer.current);
+    undoTimer.current = setTimeout(() => setUndo(null), 8000);
+  };
+  const undoFinish = () => {
+    if (!undo) return;
+    onUpdateItems(undo.items);
+    onUpdateCleared(undo.cleared);
+    onUpdateChecked(undo.checked);
+    setUndo(null);
   };
 
   const restoreWeeklyItems = () => {
-    if (confirm("Restore all items marked as bought for this plan?")) {
-      onUpdateCleared([]);
-    }
+    if (confirm("Put back everything you've already bought for this week's meals?")) onUpdateCleared([]);
   };
 
-  const checkedCount = manualItems.filter(i => i.checked).length + checkedIngredients.length;
-
-  // Pantry items: ingredients you usually have, so they're left off the list.
-  const [showPantry, setShowPantry] = useState(false);
+  // Pantry items: ingredients you usually have, so recipes don't add them.
   const pantry = useMemo(() => [...hiddenIngredients].sort(), [hiddenIngredients]);
   const addPantryOnce = (name: string) => {
     if (manualItems.some(i => i.name.toLowerCase() === name.toLowerCase() && !i.checked)) return;
-    onUpdateItems([...manualItems, { id: Date.now().toString(), name: name.charAt(0).toUpperCase() + name.slice(1), checked: false }]);
+    onUpdateItems([...manualItems, { id: Date.now().toString(), name: cap(name), checked: false }]);
   };
   const stopPantry = (name: string) => onUpdateHidden(hiddenIngredients.filter(i => i !== name));
 
+  const subtitle = toGet.length === 0 && inTrolley.length === 0
+    ? 'Nothing on the list yet'
+    : `${toGet.length} to get${inTrolley.length ? `, ${inTrolley.length} in the trolley` : ''}`;
+
   return (
-    <div className="max-w-4xl mx-auto space-y-8 pb-20">
-      <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
-        <div className="p-10 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center bg-slate-50/50 gap-6">
-          <div>
-            <h3 className="text-2xl font-bold text-slate-800">Shopping List</h3>
-            <p className="text-slate-500 font-medium">
-              {sheetSyncStatus === 'syncing' ? (
-                <span className="text-indigo-600 flex items-center gap-2">
-                  <span className="w-2 h-2 bg-indigo-600 rounded-full animate-pulse"></span>
-                  Syncing to Sheet...
-                </span>
-              ) : (
-                <span className="text-green-600 flex items-center gap-2">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"/></svg>
-                  Sheet Updated
-                </span>
-              )}
-            </p>
-          </div>
-          <div className="flex gap-3">
-             {clearedIngredients.length > 0 && (
-               <button onClick={restoreWeeklyItems} className="px-5 py-3 text-xs font-black text-indigo-600 bg-white border border-indigo-100 rounded-xl hover:bg-indigo-50 transition-all uppercase tracking-widest">
-                 Restore All
-               </button>
-             )}
-             {checkedCount > 0 && (
-               <button 
-                 onClick={clearSelected} 
-                 className="px-6 py-3 bg-red-50 text-red-600 border border-red-100 rounded-xl font-bold hover:bg-red-100 transition-all flex items-center gap-2 shadow-sm"
-               >
-                 Clear Bought ({checkedCount})
-               </button>
-             )}
-          </div>
-        </div>
+    <div className="max-w-5xl mx-auto pb-24">
+      <PageTitle
+        title="Shopping"
+        subtitle={subtitle}
+        actions={inTrolley.length > 0 ? <Btn onClick={finishShop} icon={<Icon.Check className="w-4 h-4" />}>Finish shop</Btn> : undefined}
+      />
 
-        <div className="p-8 space-y-8">
-          <div className="flex gap-2">
-            <input type="text" placeholder="Add extra milk, bread..." className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-100 outline-none" value={manualItem} onChange={e => setManualItem(e.target.value)} onKeyDown={e => e.key === 'Enter' && addManualItem()} />
-            <button onClick={addManualItem} className="px-6 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-md active:scale-95 transition-all">Add</button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-            {/* Manual Items */}
-            <section className="space-y-4">
-               <h4 className="text-xs font-black uppercase text-slate-400 tracking-widest">Extra Items</h4>
-               <div className="space-y-2">
-                 {manualItems.length === 0 ? <p className="text-sm text-slate-300 italic">No extra items added.</p> : manualItems.map(item => (
-                   <div key={item.id} className="flex items-center gap-3 group cursor-pointer" onClick={() => toggleManualItem(item.id)}>
-                     <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${item.checked ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 bg-white'}`}>
-                        {item.checked && <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>}
-                     </div>
-                     <span className={`flex-1 text-sm transition-all ${item.checked ? 'line-through text-slate-300' : 'text-slate-700 font-medium'}`}>{item.name}</span>
-                   </div>
-                 ))}
-               </div>
-            </section>
-
-            {/* Aggregated Recipe Items */}
-            <section className="space-y-4">
-               <h4 className="text-xs font-black uppercase text-slate-400 tracking-widest">Recipe Ingredients</h4>
-               <div className="space-y-2">
-                 {aggregatedIngredients.length === 0 ? <p className="text-sm text-slate-300 italic">Everything is in the trolley!</p> : aggregatedIngredients.map(([item, count]) => {
-                   const isChecked = checkedIngredients.includes(item);
-                   return (
-                     <div key={item} className="flex items-center gap-3 cursor-pointer group" onClick={() => toggleRecipeItem(item)}>
-                       <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${isChecked ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 bg-white'}`}>
-                          {isChecked && <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>}
-                       </div>
-                       <span className={`flex-1 text-sm capitalize transition-all ${isChecked ? 'line-through text-slate-300' : 'text-slate-700 font-medium'}`}>{item}</span>
-                       {count > 1 && <span className="text-[10px] bg-indigo-50 text-indigo-600 font-black px-2 py-0.5 rounded-full">x{count}</span>}
-                     </div>
-                   );
-                 })}
-               </div>
-            </section>
-          </div>
-
-          {pantry.length > 0 && (
-            <section className="border-t border-slate-100 pt-6">
-              <button onClick={() => setShowPantry(v => !v)} className="w-full flex items-center justify-between">
-                <span className="text-xs font-black uppercase text-amber-600 tracking-widest">Pantry items ({pantry.length})</span>
-                <span className="text-xs font-bold text-slate-400">{showPantry ? 'Hide' : 'Show'}</span>
-              </button>
-              <p className="text-xs text-slate-400 font-medium mt-1">Usually in the cupboard, so recipes don't add them. Running low? Add one to this week's list.</p>
-              {showPantry && (
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-2">
-                  {pantry.map(name => {
-                    const added = manualItems.some(i => i.name.toLowerCase() === name && !i.checked);
-                    return (
-                      <div key={name} className="flex items-center gap-2 p-2.5 pl-4 rounded-xl bg-amber-50/60 border border-amber-100">
-                        <span className="flex-1 text-sm font-medium text-slate-700 capitalize truncate">{name}</span>
-                        <button onClick={() => addPantryOnce(name)} disabled={added}
-                          className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-indigo-600 border border-indigo-100 hover:bg-indigo-50 disabled:text-emerald-600 disabled:border-emerald-100">
-                          {added ? 'On list' : '+ This week'}
-                        </button>
-                        <button onClick={() => stopPantry(name)} title="Stop treating this as a pantry item"
-                          className="px-2 py-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-slate-700">
-                          Not pantry
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-          )}
-        </div>
+      {/* Add bar stays at the top while you scroll the list */}
+      <div className="sticky top-0 z-20 -mx-4 px-4 md:mx-0 md:px-0 py-2 bg-slate-50">
+        <form onSubmit={e => { e.preventDefault(); addItem(); }} className="flex gap-2">
+          <input
+            value={text}
+            onChange={e => setText(e.target.value)}
+            placeholder="Add milk, bread, nappies…"
+            aria-label="Add an item"
+            enterKeyHint="done"
+            className="flex-1 min-w-0 h-12 bg-white border border-slate-200 rounded-2xl px-4 text-[17px] outline-none focus:border-indigo-500"
+          />
+          <Btn type="submit" className="h-12 w-14 !px-0" aria-label="Add to list" icon={<Icon.Plus className="w-5 h-5" />} />
+        </form>
       </div>
+
+      {groups.length === 0 ? (
+        <div className="text-center py-14">
+          <p className="font-display text-2xl text-slate-800">{inTrolley.length ? 'Everything is in the trolley' : 'All done'}</p>
+          <p className="text-slate-500 mt-1">{inTrolley.length ? 'Tap Finish shop to clear the ticked items.' : 'Plan some meals and their ingredients appear here.'}</p>
+        </div>
+      ) : (
+        <div className="mt-3 md:columns-2 md:gap-5">
+          {groups.map(g => (
+            <section key={g.aisle} className="break-inside-avoid mb-4 bg-white rounded-3xl border border-slate-200/70 overflow-hidden">
+              <h2 className="px-4 pt-3.5 pb-1 text-sm font-semibold text-indigo-700">{g.aisle}</h2>
+              <ul className="divide-y divide-slate-100">{g.rows.map(r => <ItemRow key={r.key} row={r} />)}</ul>
+            </section>
+          ))}
+        </div>
+      )}
+
+      {inTrolley.length > 0 && (
+        <section className="mt-2 rounded-3xl border border-slate-200/70 bg-slate-100/60">
+          <button onClick={() => setShowTrolley(v => !v)} className="w-full flex items-center justify-between px-4 py-3.5">
+            <span className="font-semibold text-slate-700">In the trolley ({inTrolley.length})</span>
+            <span className="text-sm font-semibold text-indigo-700">{showTrolley ? 'Hide' : 'Show'}</span>
+          </button>
+          {showTrolley && <ul className="divide-y divide-slate-200/60 pb-1">{inTrolley.map(r => <ItemRow key={r.key} row={r} />)}</ul>}
+        </section>
+      )}
+
+      {pantry.length > 0 && (
+        <section className="mt-4 rounded-3xl border border-amber-200/70 bg-amber-50/60">
+          <button onClick={() => setShowPantry(v => !v)} className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left">
+            <span>
+              <span className="block font-semibold text-slate-800">Pantry items ({pantry.length})</span>
+              <span className="block text-sm text-slate-500">Usually in the cupboard, so recipes leave them off. Running low? Add one.</span>
+            </span>
+            <span className="text-sm font-semibold text-indigo-700 shrink-0">{showPantry ? 'Hide' : 'Show'}</span>
+          </button>
+          {showPantry && (
+            <ul className="px-2 pb-2 grid grid-cols-1 md:grid-cols-2 gap-x-2">
+              {pantry.map(name => {
+                const added = manualItems.some(i => i.name.toLowerCase() === name && !i.checked);
+                return (
+                  <li key={name} className="flex items-center gap-2 pl-3 pr-1 py-1.5">
+                    <span className="flex-1 text-[15px] text-slate-800 truncate">{cap(name)}</span>
+                    <button onClick={() => addPantryOnce(name)} disabled={added}
+                      className="h-9 px-3 rounded-xl text-sm font-semibold bg-white text-indigo-700 border border-slate-200 disabled:text-slate-500 disabled:bg-transparent disabled:border-transparent">
+                      {added ? 'On the list' : 'Add'}
+                    </button>
+                    <button onClick={() => stopPantry(name)} title="Stop treating this as a pantry item" className="h-9 px-2 rounded-xl text-sm font-semibold text-slate-500 hover:text-slate-800">
+                      Not pantry
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {clearedIngredients.length > 0 && (
+        <p className="text-center mt-6">
+          <button onClick={restoreWeeklyItems} className="text-sm font-semibold text-slate-500 hover:text-indigo-700 underline underline-offset-4">
+            Put back {clearedIngredients.length} item{clearedIngredients.length === 1 ? '' : 's'} already bought this week
+          </button>
+        </p>
+      )}
+
+      {undo && (
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-24 md:bottom-8 z-[150] flex items-center gap-4 pl-5 pr-2 py-2 rounded-2xl bg-slate-900 text-white shadow-xl" role="status">
+          <span className="text-sm font-semibold">Cleared {undo.count} item{undo.count === 1 ? '' : 's'}</span>
+          <button onClick={undoFinish} className="h-9 px-3 rounded-xl text-sm font-bold text-amber-300 hover:bg-white/10">Undo</button>
+        </div>
+      )}
     </div>
   );
 };

@@ -39,14 +39,14 @@ export const NowPlaying: React.FC<{ large?: boolean }> = ({ large }) => {
         {art && active ? <img src={art} alt="" className="w-full h-full object-cover" /> : <HomeIcons.Music className={large ? 'w-12 h-12 text-slate-300' : 'w-8 h-8 text-slate-300'} />}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[11px] font-black uppercase tracking-widest text-slate-400 mb-0.5 truncate">
+        <p className="text-sm font-medium text-slate-500 mb-0.5 truncate">
           {playing ? `Playing in ${where.name}` : active ? `Paused in ${where.name}` : 'Nothing playing'}
         </p>
-        <p className={`${large ? 'text-3xl' : 'text-lg'} font-black text-slate-900 truncate leading-tight`}>{title || 'Pick a mood below'}</p>
+        <p className={`${large ? 'font-display text-3xl' : 'text-lg font-semibold'} text-slate-900 truncate leading-tight`}>{title || 'Pick a mood below'}</p>
         <p className={`${large ? 'text-lg' : 'text-sm'} font-semibold text-slate-500 truncate`}>{artist || '\u00a0'}</p>
         <div className={`flex items-center ${large ? 'gap-3 mt-4' : 'gap-2 mt-2'}`}>
           <button aria-label="Previous" disabled={!active} onClick={() => media('media_previous_track', target)} className="w-10 h-10 rounded-full flex items-center justify-center text-slate-500 hover:bg-slate-100 disabled:opacity-30"><HomeIcons.Prev className="w-5 h-5" /></button>
-          <button aria-label={playing ? 'Pause' : 'Play'} disabled={!active} onClick={() => media('media_play_pause', target)} className={`${large ? 'w-14 h-14' : 'w-11 h-11'} rounded-full flex items-center justify-center bg-slate-900 text-white shadow-lg disabled:opacity-30`}>
+          <button aria-label={playing ? 'Pause' : 'Play'} disabled={!active} onClick={() => media('media_play_pause', target)} className={`${large ? 'w-14 h-14' : 'w-11 h-11'} rounded-full flex items-center justify-center bg-indigo-700 text-white shadow-sm disabled:opacity-30`}>
             {playing ? <HomeIcons.Pause className="w-5 h-5" /> : <HomeIcons.Play className="w-5 h-5 ml-0.5" />}
           </button>
           <button aria-label="Next" disabled={!active} onClick={() => media('media_next_track', target)} className="w-10 h-10 rounded-full flex items-center justify-center text-slate-500 hover:bg-slate-100 disabled:opacity-30"><HomeIcons.Next className="w-5 h-5" /></button>
@@ -68,9 +68,9 @@ export const ProfileGrid: React.FC<{ large?: boolean }> = ({ large }) => {
         <button
           key={m.id}
           onClick={() => runScript(`script.${m.id}`)}
-          className={`text-left rounded-2xl bg-gradient-to-br ${TONE_STYLES[m.tone] || TONE_STYLES.indigo} text-white shadow-lg active:scale-[0.97] transition-transform ${large ? 'p-5' : 'px-3.5 py-3'}`}
+          className={`text-left rounded-2xl bg-gradient-to-br ${TONE_STYLES[m.tone] || TONE_STYLES.indigo} text-white shadow-sm active:scale-[0.97] transition-transform ${large ? 'p-5' : 'px-3.5 py-3'}`}
         >
-          <span className={`block font-black truncate ${large ? 'text-xl' : 'text-sm'}`}>{m.name}</span>
+          <span className={`block font-semibold truncate ${large ? 'text-xl' : 'text-sm'}`}>{m.name}</span>
           <span className={`block font-semibold text-white/80 truncate ${large ? 'text-sm' : 'text-[11px]'}`}>{m.hint}</span>
         </button>
       ))}

@@ -112,17 +112,17 @@ const MoodEditor: React.FC<{
 
   return (
     <div className="fixed inset-0 z-[120] bg-black/50 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto">
-      <div className="bg-white w-full max-w-3xl rounded-[2.5rem] shadow-2xl my-6 overflow-hidden">
+      <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl my-6 overflow-hidden">
         <div className={`bg-gradient-to-br ${TONE_STYLES[draft.tone]} px-8 pt-7 pb-6 text-white`}>
           <div className="flex justify-between items-start">
-            <p className="text-xs font-black uppercase tracking-widest text-white/70">{isNew ? 'New music mood' : 'Edit music mood'}</p>
+            <p className="text-sm font-medium text-white/80">{isNew ? 'New music mood' : 'Edit music mood'}</p>
             <button onClick={onClose} aria-label="Close" className="w-9 h-9 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center">✕</button>
           </div>
           <input
             value={draft.name}
             onChange={e => setDraft({ ...draft, name: e.target.value })}
             placeholder="Mood name"
-            className="mt-2 w-full bg-transparent text-4xl font-black tracking-tight placeholder-white/50 outline-none"
+            className="mt-2 w-full bg-transparent font-display text-4xl placeholder-white/50 outline-none"
           />
           <input
             value={draft.hint}
@@ -140,7 +140,7 @@ const MoodEditor: React.FC<{
 
         <div className="p-8 space-y-8">
           <div>
-            <h4 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-3">Speakers & volume</h4>
+            <h4 className="text-sm font-semibold text-slate-600 mb-3">Speakers & volume</h4>
             <div className="space-y-2">
               {HOME.music.speakers.map(s => {
                 const v = draft.volumes[s.entity];
@@ -159,7 +159,7 @@ const MoodEditor: React.FC<{
           </div>
 
           <div>
-            <h4 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-3">Music</h4>
+            <h4 className="text-sm font-semibold text-slate-600 mb-3">Music</h4>
             <div className="grid grid-cols-3 gap-2 mb-3">
               {([
                 ['if_idle', "Start if nothing's playing"],
@@ -207,7 +207,7 @@ const MoodEditor: React.FC<{
               </button>
             )}
             <button onClick={onClose} className="ml-auto px-5 py-3.5 rounded-2xl font-bold text-slate-500 hover:bg-slate-100">Cancel</button>
-            <button onClick={save} disabled={!!busy || !admin} className="px-7 py-3.5 rounded-2xl font-bold bg-indigo-600 text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 disabled:opacity-40">
+            <button onClick={save} disabled={!!busy || !admin} className="px-7 py-3.5 rounded-2xl font-bold bg-indigo-600 text-white shadow-lg hover:bg-indigo-700 disabled:opacity-40">
               {busy === 'save' ? 'Saving…' : 'Save mood'}
             </button>
           </div>
@@ -272,7 +272,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onChange, calenda
   return (
     <div className="space-y-6 max-w-5xl">
       <div>
-        <h2 className="text-3xl font-black text-slate-900 tracking-tight">Settings</h2>
+        <h1 className="font-display text-[2rem] md:text-4xl text-slate-900">Settings</h1>
         <p className="text-slate-500 font-medium mt-1">Changes save automatically and show up on every device.</p>
       </div>
 
@@ -296,7 +296,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onChange, calenda
             <div key={m.id} className="flex items-center gap-3 p-3 rounded-2xl bg-slate-50">
               <span className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${TONE_STYLES[m.tone] || TONE_STYLES.indigo} shrink-0`} />
               <div className="flex-1 min-w-0">
-                <p className="font-black text-slate-900 truncate">{m.name} <span className="font-semibold text-slate-400">· {m.hint}</span></p>
+                <p className="font-semibold text-slate-900 truncate">{m.name} <span className="font-semibold text-slate-400">· {m.hint}</span></p>
                 <p className="text-xs font-semibold text-slate-500 truncate">{moodSummary(m)}</p>
               </div>
               <button className={smallBtn} aria-label="Move up" disabled={i === 0} onClick={() => update({ moods: move(settings.moods, i, i - 1) })}><HomeIcons.Up className="w-5 h-5" /></button>
@@ -326,14 +326,14 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onChange, calenda
       >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <label className="block">
-            <span className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Music</span>
+            <span className="block text-sm font-semibold text-slate-600 mb-2">Music</span>
             <select className={inputClass} value={settings.cooking.moodId || ''} onChange={e => update({ cooking: { ...settings.cooking, moodId: e.target.value || null } })}>
               <option value="">No music</option>
               {settings.moods.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
           </label>
           <label className="block">
-            <span className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Lights</span>
+            <span className="block text-sm font-semibold text-slate-600 mb-2">Lights</span>
             <select className={inputClass} value={settings.cooking.lights} onChange={e => update({ cooking: { ...settings.cooking, lights: e.target.value } })}>
               <option value="">Leave the lights alone</option>
               {lights.map(l => <option key={l.id} value={l.id}>{l.name}{l.isGroup ? ' (group)' : ''}</option>)}
@@ -342,11 +342,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onChange, calenda
           {settings.cooking.lights && (
             <>
               <div>
-                <span className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Brightness</span>
+                <span className="block text-sm font-semibold text-slate-600 mb-2">Brightness</span>
                 <FillSlider className="h-11" value={settings.cooking.brightness} onCommit={v => update({ cooking: { ...settings.cooking, brightness: v } })} label="Brightness" />
               </div>
               <div>
-                <span className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Colour: {kelvinLabel(settings.cooking.kelvin)} ({settings.cooking.kelvin}K)</span>
+                <span className="block text-sm font-semibold text-slate-600 mb-2">Colour: {kelvinLabel(settings.cooking.kelvin)} ({settings.cooking.kelvin}K)</span>
                 <div className="grid grid-cols-3 gap-2">
                   {[['Warm', 2700], ['Neutral', 4000], ['Daylight', 5500]].map(([label, k]) => (
                     <button key={label} onClick={() => update({ cooking: { ...settings.cooking, kelvin: k as number } })}
@@ -373,15 +373,15 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onChange, calenda
       >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <label className="block md:col-span-2">
-            <span className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">What it says (on every speaker)</span>
+            <span className="block text-sm font-semibold text-slate-600 mb-2">What it says (on every speaker)</span>
             <input className={inputClass} value={settings.dinner.message} onChange={e => update({ dinner: { ...settings.dinner, message: e.target.value } })} />
           </label>
           <div>
-            <span className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Announcement volume</span>
+            <span className="block text-sm font-semibold text-slate-600 mb-2">Announcement volume</span>
             <FillSlider className="h-11" tone="indigo" value={settings.dinner.volume} onCommit={v => update({ dinner: { ...settings.dinner, volume: v } })} label="Volume" />
           </div>
           <div>
-            <span className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Flash these lights</span>
+            <span className="block text-sm font-semibold text-slate-600 mb-2">Flash these lights</span>
             <div className="flex flex-wrap gap-2">
               {settings.rooms.map(r => {
                 const onList = settings.dinner.flashLights.includes(r.entity);
@@ -401,7 +401,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onChange, calenda
       {/* TIMERS */}
       <Card title="Timers">
         <label className="block max-w-md">
-          <span className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">When a timer finishes, also announce it on</span>
+          <span className="block text-sm font-semibold text-slate-600 mb-2">When a timer finishes, also announce it on</span>
           <select className={inputClass} value={settings.timers.speaker} onChange={e => update({ timers: { speaker: e.target.value } })}>
             <option value="">No speaker (chime on the screen only)</option>
             {HOME.music.speakers.map(s => <option key={s.entity} value={s.entity}>{s.name}</option>)}
@@ -431,7 +431,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onChange, calenda
                   <button key={c.id}
                     onClick={() => update({ calendars: on ? chosen.filter(x => x !== c.id) : [...chosen, c.id] })}
                     className={`flex items-center gap-3 p-3 rounded-2xl text-left ${on ? 'bg-indigo-50' : 'bg-slate-50'}`}>
-                    <span className="w-5 h-5 rounded-md shrink-0 flex items-center justify-center text-white text-xs font-black" style={{ background: on ? c.color : '#e2e8f0' }}>{on ? '✓' : ''}</span>
+                    <span className="w-5 h-5 rounded-md shrink-0 flex items-center justify-center text-white text-xs font-semibold" style={{ background: on ? c.color : '#e2e8f0' }}>{on ? '✓' : ''}</span>
                     <span className="font-bold text-slate-800 truncate">{c.name}</span>
                   </button>
                 );
@@ -449,15 +449,15 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onChange, calenda
         <p className="text-sm font-semibold text-slate-500 mb-4">At night, after a few minutes without a touch, the kitchen screen switches to a dark clock. Touch it to wake.</p>
         <div className={`grid grid-cols-3 gap-4 ${settings.night.enabled ? '' : 'opacity-40 pointer-events-none'}`}>
           <label className="block">
-            <span className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">From</span>
+            <span className="block text-sm font-semibold text-slate-600 mb-2">From</span>
             <input type="time" className={inputClass} value={settings.night.start} onChange={e => update({ night: { ...settings.night, start: e.target.value } })} />
           </label>
           <label className="block">
-            <span className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Until</span>
+            <span className="block text-sm font-semibold text-slate-600 mb-2">Until</span>
             <input type="time" className={inputClass} value={settings.night.end} onChange={e => update({ night: { ...settings.night, end: e.target.value } })} />
           </label>
           <label className="block">
-            <span className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">After</span>
+            <span className="block text-sm font-semibold text-slate-600 mb-2">After</span>
             <select className={inputClass} value={settings.night.idleMinutes} onChange={e => update({ night: { ...settings.night, idleMinutes: Number(e.target.value) } })}>
               {[1, 2, 5, 10, 15].map(m => <option key={m} value={m}>{m} minute{m > 1 ? 's' : ''} idle</option>)}
             </select>

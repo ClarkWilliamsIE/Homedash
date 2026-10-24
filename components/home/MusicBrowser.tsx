@@ -79,7 +79,7 @@ const Grid: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 );
 
 const SectionTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <h4 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-3 mt-6 first:mt-0">{children}</h4>
+  <h4 className="font-semibold text-slate-700 mb-3 mt-6 first:mt-0">{children}</h4>
 );
 
 const Loading: React.FC<{ children?: React.ReactNode }> = ({ children = 'Loading…' }) => (
@@ -103,8 +103,8 @@ const ArtistView: React.FC<{ artist: MediaItem; a: Actions; onBack: () => void }
       <div className="flex items-center gap-5">
         <Cover item={artist} round className="w-28 h-28 shadow-md" />
         <div className="min-w-0">
-          <h3 className="text-3xl font-black text-slate-900 tracking-tight truncate">{artist.name}</h3>
-          <button disabled={a.busy} onClick={() => a.onPlay(artist)} className="mt-3 flex items-center gap-2 px-5 py-3 rounded-2xl bg-indigo-600 text-white font-bold shadow-lg shadow-indigo-200 disabled:opacity-50">
+          <h3 className="font-display text-3xl text-slate-900 truncate">{artist.name}</h3>
+          <button disabled={a.busy} onClick={() => a.onPlay(artist)} className="mt-3 flex items-center gap-2 px-5 py-3 rounded-2xl bg-indigo-600 text-white font-bold shadow-lg disabled:opacity-50">
             <HomeIcons.Play className="w-4 h-4" /> Play all
           </button>
           <p className="text-xs font-semibold text-slate-400 mt-2">Playing everything by an artist can take 10–20 seconds to start. A song or album starts faster.</p>

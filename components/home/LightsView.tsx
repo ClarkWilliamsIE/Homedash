@@ -44,10 +44,10 @@ const LightsView: React.FC = () => {
   return (
     <div className="space-y-6 max-w-6xl">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-3xl font-black text-slate-900 tracking-tight mr-auto">Lights</h2>
+        <h1 className="font-display text-[2rem] md:text-4xl text-slate-900 mr-auto">Lights</h1>
         <button
           onClick={() => callService('input_boolean', 'toggle', undefined, { entity_id: HOME.partyMode })}
-          className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-bold transition-all ${party?.state === 'on' ? 'bg-pink-500 text-white shadow-lg shadow-pink-200' : 'bg-white border border-slate-200 text-slate-600'}`}
+          className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-bold transition-all ${party?.state === 'on' ? 'bg-pink-500 text-white shadow-lg' : 'bg-white border border-slate-200 text-slate-600'}`}
         >
           <HomeIcons.Party className="w-5 h-5" /> Party mode {party?.state === 'on' ? 'on' : 'off'}
         </button>

@@ -1,14 +1,20 @@
 // components/RecipeBook.tsx
+// The family recipe book: browse, read a recipe, cook it step by step, add it to the week,
+// and add new ones (paste a link to import, or type/paste them in).
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { Recipe, Ingredient, Instruction } from '../types';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { Recipe, Ingredient, Instruction, WeeklyPlan } from '../types';
 import { apiUrl } from '../lib/runtime';
 import { useIsHome } from '../lib/hass';
 import { startCooking } from '../lib/cooking';
 import { startTimer, TIME_PATTERN, toSeconds } from '../lib/timers';
+import { Btn, Icon, PageTitle, Pill, Sheet, useIsPhone } from './ui';
+import { HomeIcons } from './home/icons';
+
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 /** A method step where times like "simmer 20 minutes" become tap-to-start timers. */
-const StepText: React.FC<{ text: string; label: string }> = ({ text, label }) => {
+const StepText: React.FC<{ text: string; label: string; big?: boolean }> = ({ text, label, big }) => {
   const parts: React.ReactNode[] = [];
   let last = 0;
   for (const m of text.matchAll(new RegExp(TIME_PATTERN))) {
@@ -21,9 +27,9 @@ const StepText: React.FC<{ text: string; label: string }> = ({ text, label }) =>
         type="button"
         onClick={() => startTimer(`${label}: ${m[0]}`, seconds)}
         title="Start a timer"
-        className="inline-flex items-center gap-1 px-2 py-0.5 mx-0.5 rounded-lg bg-indigo-50 text-indigo-700 font-bold hover:bg-indigo-100 align-baseline"
+        className={`inline-flex items-center gap-1 mx-0.5 rounded-lg bg-indigo-50 text-indigo-700 font-semibold hover:bg-indigo-100 align-baseline font-sans ${big ? 'px-2.5 py-0.5 text-[0.8em]' : 'px-2 py-0.5'}`}
       >
-        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 2h4" /><path d="M12 14l3-3" /><circle cx="12" cy="14" r="8" /></svg>
+        <HomeIcons.Timer className={big ? 'w-[0.9em] h-[0.9em]' : 'w-4 h-4'} />
         {m[0]}
       </button>
     );
@@ -33,488 +39,679 @@ const StepText: React.FC<{ text: string; label: string }> = ({ text, label }) =>
   return <>{parts}</>;
 };
 
-// --- UTILS FOR SCALING ---
-
+// --- Scaling ---
 const parseAmount = (amount: string): number => {
-  if (!amount) return 0;
-  const trimmed = amount.trim();
+  const trimmed = (amount || '').trim();
+  if (!trimmed) return 0;
   if (trimmed.includes('/')) {
     const [num, den] = trimmed.split('/');
     return parseFloat(num) / parseFloat(den);
   }
   return parseFloat(trimmed);
 };
-
 const formatAmount = (val: number): string => {
   if (val === 0) return '';
-  const tolerance = 0.05;
-  if (Math.abs(val - 0.25) < tolerance) return '1/4';
-  if (Math.abs(val - 0.33) < tolerance) return '1/3';
-  if (Math.abs(val - 0.5) < tolerance) return '1/2';
-  if (Math.abs(val - 0.66) < tolerance) return '2/3';
-  if (Math.abs(val - 0.75) < tolerance) return '3/4';
-  
+  const whole = Math.floor(val);
+  const frac = val - whole;
+  const fracs: [number, string][] = [[0.25, '¼'], [0.33, '⅓'], [0.5, '½'], [0.66, '⅔'], [0.75, '¾']];
+  const f = fracs.find(([v]) => Math.abs(frac - v) < 0.05);
+  if (f) return `${whole || ''}${f[1]}`;
   if (Number.isInteger(val)) return val.toString();
   return val.toFixed(1).replace('.0', '');
 };
-
 const scaleIngredient = (amountStr: string, factor: number): string => {
   if (!amountStr) return '';
-  const match = amountStr.match(/^([\d./]+)/);
-  if (!match) return amountStr; 
-  
+  const match = amountStr.match(/^([\d./]+)(.*)$/);
+  if (!match) return amountStr;
   const num = parseAmount(match[1]);
   if (isNaN(num)) return amountStr;
-
-  const scaled = num * factor;
-  return formatAmount(scaled);
+  return formatAmount(num * factor) + match[2];
 };
 
-// --- COMPONENT ---
+// --- Pasting a block of ingredients or method ---
+const UNICODE_FRACTIONS: Record<string, string> = { '½': '1/2', '¼': '1/4', '¾': '3/4', '⅓': '1/3', '⅔': '2/3' };
+const UNITS = 'cups?|c|tbsp|tbs|tablespoons?|tsp|teaspoons?|g|grams?|kg|ml|l|litres?|liters?|oz|lb|pinch|handful|cloves?|cans?|tins?|packets?|bunch(?:es)?|slices?|sprigs?';
+export const parseIngredientLine = (line: string): Ingredient | null => {
+  let s = line.replace(/^[\s•*\-–]+/, '').trim();
+  if (!s) return null;
+  s = s.replace(/[½¼¾⅓⅔]/g, c => ` ${UNICODE_FRACTIONS[c]}`).replace(/\s+/g, ' ').trim();
+  const m = s.match(new RegExp(`^((?:\\d+\\s)?\\d+(?:[./]\\d+)?(?:\\s?-\\s?\\d+(?:[./]\\d+)?)?)\\s*(${UNITS})?\\.?\\s+(?:of\\s+)?(.+)$`, 'i'));
+  if (!m) return { amount: '', unit: '', item: s };
+  return { amount: m[1].replace(/\s+/g, ' '), unit: (m[2] || '').toLowerCase(), item: m[3].trim() };
+};
+const parseMethod = (block: string): Instruction[] =>
+  block.split(/\n+/).map(l => l.replace(/^\s*(?:step\s*)?\d+[.):]?\s*/i, '').trim()).filter(Boolean)
+    .map(text => ({ text: text.replace(/:$/, ''), isHeader: /:$/.test(text) && text.length < 40 }));
 
+// --- Cook mode: one step at a time, big text, screen stays on ---
+const CookMode: React.FC<{ recipe: Recipe; scale: number; onClose: () => void }> = ({ recipe, scale, onClose }) => {
+  const isHome = useIsHome();
+  const steps = recipe.instructions.filter(s => !s.isHeader);
+  const sectionFor = (i: number) => {
+    let header = '';
+    let n = -1;
+    for (const s of recipe.instructions) {
+      if (s.isHeader) header = s.text; else n++;
+      if (n === i) return header;
+    }
+    return '';
+  };
+  const [i, setI] = useState(0);
+  const [showIngredients, setShowIngredients] = useState(false);
+  const [cooking, setCooking] = useState(false);
+  const touchX = useRef<number | null>(null);
+  const last = steps.length - 1;
+  const next = useCallback(() => setI(v => Math.min(last, v + 1)), [last]);
+  const prev = useCallback(() => setI(v => Math.max(0, v - 1)), []);
+
+  // Keep the screen awake while cooking.
+  useEffect(() => {
+    let lock: any = null;
+    const grab = async () => { try { lock = await (navigator as any).wakeLock?.request('screen'); } catch { /* not supported */ } };
+    grab();
+    const onVisible = () => { if (!document.hidden) grab(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { document.removeEventListener('visibilitychange', onVisible); try { lock?.release(); } catch { /* already released */ } };
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); next(); }
+      if (e.key === 'ArrowLeft') prev();
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [next, prev, onClose]);
+
+  const section = sectionFor(i);
+  return (
+    <div
+      className="fixed inset-0 z-[130] bg-slate-50 flex flex-col pt-safe"
+      onTouchStart={e => { touchX.current = e.touches[0].clientX; }}
+      onTouchEnd={e => {
+        if (touchX.current === null) return;
+        const dx = e.changedTouches[0].clientX - touchX.current;
+        if (Math.abs(dx) > 70) (dx < 0 ? next : prev)();
+        touchX.current = null;
+      }}
+      role="dialog"
+      aria-label={`Cooking ${recipe.name}`}
+    >
+      <header className="flex items-center gap-3 px-4 md:px-8 py-3 border-b border-slate-200">
+        <Btn variant="secondary" size="sm" onClick={onClose} icon={<Icon.Back className="w-4 h-4" />}>Done</Btn>
+        <p className="flex-1 min-w-0 font-semibold text-slate-700 truncate text-center">{recipe.name}</p>
+        <Btn variant="secondary" size="sm" onClick={() => setShowIngredients(true)}>Ingredients</Btn>
+      </header>
+
+      <div className="h-1.5 bg-slate-200"><div className="h-full bg-indigo-600 transition-[width] duration-300" style={{ width: `${steps.length ? ((i + 1) / steps.length) * 100 : 0}%` }} /></div>
+
+      <div className="flex-1 overflow-y-auto px-6 md:px-16 py-8 md:py-12">
+        <div className="max-w-3xl mx-auto">
+          <p className="text-slate-500 font-semibold">Step {i + 1} of {steps.length}{section ? ` · ${section}` : ''}</p>
+          <p className="font-display text-[1.85rem] md:text-[2.6rem] leading-[1.3] text-slate-900 mt-4">
+            {steps[i] ? <StepText big text={steps[i].text} label={`${recipe.name} (step ${i + 1})`} /> : 'This recipe has no method yet.'}
+          </p>
+          {steps[i + 1] && <p className="mt-10 text-slate-500 text-lg leading-relaxed"><span className="font-semibold text-slate-600">Next:</span> {steps[i + 1].text}</p>}
+          {isHome && i === 0 && (
+            <button
+              onClick={() => { startCooking(); setCooking(true); }}
+              className={`mt-10 inline-flex items-center gap-2 h-12 px-5 rounded-2xl font-semibold ${cooking ? 'bg-indigo-50 text-indigo-700' : 'bg-white border border-slate-200 text-slate-700'}`}
+            >
+              <HomeIcons.Music className="w-5 h-5" /> {cooking ? 'Cooking music and lights are on' : 'Put on cooking music and lights'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <footer className="grid grid-cols-[1fr_2fr] gap-3 px-4 md:px-8 pt-3 pb-safe-4 border-t border-slate-200 bg-white">
+        <Btn size="lg" variant="secondary" disabled={i === 0} onClick={prev} icon={<Icon.Back className="w-5 h-5" />}>Back</Btn>
+        {i < last
+          ? <Btn size="lg" onClick={next}>Next step <Icon.Next className="w-5 h-5" /></Btn>
+          : <Btn size="lg" variant="clay" onClick={onClose}>Finished</Btn>}
+      </footer>
+
+      <Sheet open={showIngredients} onClose={() => setShowIngredients(false)} title="Ingredients">
+        <ul className="divide-y divide-slate-100 pb-2">
+          {recipe.ingredients.map((ing, idx) => (
+            <li key={idx} className="py-3 text-lg text-slate-800">
+              <span className="font-semibold text-indigo-700 mr-2">{scaleIngredient(ing.amount, scale)} {ing.unit}</span>{ing.item}
+            </li>
+          ))}
+        </ul>
+      </Sheet>
+    </div>
+  );
+};
+
+// --- The recipe itself ---
+const RecipeView: React.FC<{
+  recipe: Recipe;
+  hiddenIngredients: string[];
+  onTogglePantry: (item: string) => void;
+  onAddOnce: (text: string) => void;
+  onClose: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onFavourite: () => void;
+  onAddMeal: (day: string) => void;
+  plannedOn: string[];
+  startInCookMode?: boolean;
+}> = ({ recipe, hiddenIngredients, onTogglePantry, onAddOnce, onClose, onEdit, onDelete, onFavourite, onAddMeal, plannedOn, startInCookMode }) => {
+  const [scale, setScale] = useState(1);
+  const [cook, setCook] = useState(!!startInCookMode);
+  const [choosingDay, setChoosingDay] = useState(false);
+  const [added, setAdded] = useState<string | null>(null);
+  const todayIdx = new Date().getDay();
+  const dayOrder = Array.from({ length: 7 }, (_, i) => DAYS[(todayIdx + i) % 7]);
+  let stepNo = 0;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !cook && !choosingDay) onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [cook, choosingDay, onClose]);
+
+  const ingredients = (
+    <section>
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <h2 className="font-display text-2xl text-slate-900">Ingredients</h2>
+        <div className="flex bg-slate-100 rounded-xl p-1" role="group" aria-label="Quantity">
+          {[0.5, 1, 2].map(s => (
+            <button key={s} onClick={() => setScale(s)} aria-pressed={scale === s} className={`h-8 px-3 text-sm font-semibold rounded-lg ${scale === s ? 'bg-white shadow-sm text-indigo-700' : 'text-slate-500'}`}>
+              {s === 0.5 ? 'Half' : s === 1 ? 'Normal' : 'Double'}
+            </button>
+          ))}
+        </div>
+      </div>
+      <ul className="divide-y divide-slate-100 border-y border-slate-100">
+        {recipe.ingredients.map((ing, idx) => {
+          const isPantry = hiddenIngredients.includes(ing.item.toLowerCase().trim());
+          const amount = `${scaleIngredient(ing.amount, scale)} ${ing.unit}`.trim();
+          return (
+            <li key={idx} className="flex items-center gap-2 py-2.5">
+              <span className="flex-1 min-w-0 text-[16px] leading-snug text-slate-800">
+                {amount && <span className="font-semibold text-indigo-700 mr-1.5">{amount}</span>}
+                {ing.item}
+              </span>
+              <button
+                onClick={() => onTogglePantry(ing.item)}
+                title={isPantry ? 'Usually in the pantry, so it stays off the shopping list. Tap to put it on the list.' : 'Goes on the shopping list. Tap if you usually have it.'}
+                className={`shrink-0 h-8 px-2.5 rounded-full text-xs font-semibold border ${isPantry ? 'bg-amber-100 border-amber-200 text-amber-800' : 'bg-white border-slate-200 text-slate-500'}`}
+              >
+                {isPantry ? 'Pantry' : 'On list'}
+              </button>
+              <button
+                onClick={() => onAddOnce(`${ing.item}${amount ? ` (${amount})` : ''}`)}
+                aria-label={`Add ${ing.item} to this week's list`}
+                title="Add to this week's list once"
+                className="shrink-0 w-8 h-8 rounded-full text-indigo-700 hover:bg-indigo-50 flex items-center justify-center"
+              >
+                <Icon.Plus className="w-4 h-4" />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="text-sm text-slate-500 mt-2.5">Pantry items stay off the shopping list. Tap a label to change it, or + to add one this week.</p>
+    </section>
+  );
+
+  const method = (
+    <section>
+      <h2 className="font-display text-2xl text-slate-900 mb-4">Method</h2>
+      <ol className="space-y-5">
+        {recipe.instructions.map((step, idx) => {
+          if (step.isHeader) return <li key={idx} className="font-semibold text-indigo-700 pt-3">{step.text}</li>;
+          stepNo++;
+          const n = stepNo;
+          return (
+            <li key={idx} className="flex gap-4">
+              <span className="font-display text-xl text-indigo-600 w-6 shrink-0 text-right leading-[1.6]">{n}</span>
+              <p className="text-[17px] text-slate-700 leading-relaxed"><StepText text={step.text} label={`${recipe.name} (step ${n})`} /></p>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+
+  return (
+    <div className="fixed inset-0 z-[110] flex md:items-center justify-center md:p-6" role="dialog" aria-label={recipe.name}>
+      <div className="absolute inset-0 bg-slate-900/50 hidden md:block" onClick={onClose} />
+      <div className="relative bg-white w-full h-full md:max-w-6xl md:h-[92dvh] md:rounded-3xl shadow-2xl overflow-hidden flex flex-col">
+        <div className="flex-1 overflow-y-auto">
+          <div className="md:grid md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] md:min-h-full">
+            <div className="md:border-r md:border-slate-100">
+              <div className="relative">
+                <img src={recipe.imageUrl} alt="" className="w-full aspect-[4/3] object-cover bg-slate-100" />
+                <button onClick={onClose} aria-label="Back to recipes" className="absolute left-3 top-3 mt-safe w-11 h-11 rounded-full bg-white/90 text-slate-800 shadow flex items-center justify-center">
+                  <Icon.Back className="w-5 h-5" />
+                </button>
+                <button onClick={onFavourite} aria-label={recipe.isFavorite ? 'Remove from favourites' : 'Add to favourites'} className={`absolute right-3 top-3 mt-safe w-11 h-11 rounded-full shadow flex items-center justify-center ${recipe.isFavorite ? 'bg-orange-500 text-white' : 'bg-white/90 text-slate-700'}`}>
+                  <Icon.Heart filled={recipe.isFavorite} className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="hidden md:block p-6 lg:p-8">{ingredients}</div>
+            </div>
+
+            <div className="p-5 md:p-8 lg:p-10 space-y-8">
+              <div>
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {recipe.isNew && <Pill tone="clay">Not tried yet</Pill>}
+                  {recipe.tags.map(t => <Pill key={t} tone="green">{t}</Pill>)}
+                </div>
+                <h1 className="font-display text-[2.1rem] md:text-5xl leading-[1.1] text-slate-900">{recipe.name}</h1>
+                {plannedOn.length > 0 && <p className="text-slate-500 mt-2">On the plan for {plannedOn.join(' and ')}</p>}
+                <div className="grid grid-cols-2 md:flex md:flex-wrap gap-2 mt-5">
+                  <Btn size="lg" onClick={() => setCook(true)} disabled={!recipe.instructions.length} icon={<HomeIcons.Chef className="w-5 h-5" />}>Start cooking</Btn>
+                  <Btn size="lg" variant="secondary" onClick={() => setChoosingDay(true)} icon={<Icon.Week className="w-5 h-5" />}>{added ? `On for ${added}` : 'Add to week'}</Btn>
+                </div>
+                <div className="flex gap-1 mt-3 -ml-2">
+                  <Btn size="sm" variant="ghost" onClick={onEdit} icon={<HomeIcons.Edit className="w-4 h-4" />}>Edit</Btn>
+                  <Btn size="sm" variant="danger" onClick={onDelete} icon={<HomeIcons.Trash className="w-4 h-4" />}>Delete</Btn>
+                </div>
+              </div>
+              <div className="md:hidden">{ingredients}</div>
+              {method}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <Sheet open={choosingDay} onClose={() => setChoosingDay(false)} title="Add to which day?">
+        <div className="grid grid-cols-2 gap-2 pb-2">
+          {dayOrder.map((d, i) => (
+            <Btn key={d} size="lg" variant="secondary" onClick={() => { onAddMeal(d); setAdded(i === 0 ? 'tonight' : d); setChoosingDay(false); }}>
+              {i === 0 ? `Tonight (${d.slice(0, 3)})` : i === 1 ? `Tomorrow (${d.slice(0, 3)})` : d}
+            </Btn>
+          ))}
+        </div>
+      </Sheet>
+
+      {cook && <CookMode recipe={recipe} scale={scale} onClose={() => setCook(false)} />}
+    </div>
+  );
+};
+
+// --- Add / edit form ---
+interface FormState {
+  id: string; name: string; imageUrl: string; tags: string;
+  ingredients: Ingredient[]; instructions: Instruction[];
+  isFavorite: boolean; isNew: boolean;
+}
+const emptyForm = (): FormState => ({ id: '', name: '', imageUrl: '', tags: '', ingredients: [{ amount: '', unit: '', item: '' }], instructions: [{ text: '', isHeader: false }], isFavorite: false, isNew: true });
+
+const field = 'w-full h-12 bg-slate-100 rounded-2xl px-4 text-[16px] outline-none focus:bg-white focus:ring-2 focus:ring-indigo-200';
+const label = 'block text-sm font-semibold text-slate-700 mb-1.5';
+
+const RecipeForm: React.FC<{
+  initial: FormState;
+  editing: boolean;
+  autoImport?: string | null;
+  onCancel: () => void;
+  onSave: (f: FormState, file?: File) => Promise<boolean>;
+}> = ({ initial, editing, autoImport, onCancel, onSave }) => {
+  const [f, setF] = useState<FormState>(initial);
+  const [importUrl, setImportUrl] = useState(autoImport || '');
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(initial.imageUrl || null);
+  const [paste, setPaste] = useState<null | 'ingredients' | 'method'>(null);
+  const [pasteText, setPasteText] = useState('');
+  const set = (patch: Partial<FormState>) => setF(prev => ({ ...prev, ...patch }));
+
+  const runImport = async (url = importUrl) => {
+    if (!url.trim()) return;
+    setImporting(true);
+    setImportError('');
+    try {
+      // The AI step runs on the server (api/importRecipe), so the Gemini key stays private.
+      const res = await fetch(apiUrl('/api/importRecipe'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url.trim(), pin: localStorage.getItem('family_pin') })
+      });
+      if (!res.ok) throw new Error(`Import failed (${res.status})`);
+      const data = await res.json();
+      set({
+        name: data.name || '',
+        ingredients: data.ingredients?.length ? data.ingredients : [{ amount: '', unit: '', item: '' }],
+        instructions: data.instructions?.length ? data.instructions : [{ text: '', isHeader: false }],
+        tags: data.tags || '',
+        imageUrl: data.imageUrl || '',
+      });
+      setPreview(data.imageUrl || null);
+      setImportUrl('');
+    } catch {
+      setImportError(navigator.onLine ? "Couldn't read a recipe from that link. Check it opens in a browser, or type the recipe in below." : 'Importing needs a connection.');
+    } finally { setImporting(false); }
+  };
+
+  // Opened from a shared link (?import=…): import straight away.
+  useEffect(() => { if (autoImport) runImport(autoImport); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = e.target.files?.[0];
+    if (!picked) return;
+    setFile(picked);
+    const reader = new FileReader();
+    reader.onloadend = () => setPreview(reader.result as string);
+    reader.readAsDataURL(picked);
+  };
+
+  const applyPaste = () => {
+    if (paste === 'ingredients') {
+      const parsed = pasteText.split(/\n+/).map(parseIngredientLine).filter(Boolean) as Ingredient[];
+      set({ ingredients: [...f.ingredients.filter(i => i.item.trim()), ...parsed] });
+    } else if (paste === 'method') {
+      set({ instructions: [...f.instructions.filter(i => i.text.trim()), ...parseMethod(pasteText)] });
+    }
+    setPaste(null);
+    setPasteText('');
+  };
+
+  const updateIng = (i: number, key: keyof Ingredient, value: string) => set({ ingredients: f.ingredients.map((x, j) => j === i ? { ...x, [key]: value } : x) });
+  const updateStep = (i: number, patch: Partial<Instruction>) => set({ instructions: f.instructions.map((x, j) => j === i ? { ...x, ...patch } : x) });
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!f.name.trim()) return;
+    setSaving(true);
+    const ok = await onSave(f, file || undefined);
+    setSaving(false);
+    if (ok) onCancel();
+  };
+
+  return (
+    <Sheet
+      open
+      wide
+      onClose={onCancel}
+      title={editing ? 'Edit recipe' : 'Add a recipe'}
+      footer={
+        <div className="flex gap-2">
+          <Btn type="button" variant="ghost" size="lg" onClick={onCancel}>Cancel</Btn>
+          <Btn type="submit" form="recipe-form" size="lg" className="flex-1" disabled={saving || !f.name.trim()}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Save recipe'}</Btn>
+        </div>
+      }
+    >
+      {!editing && (
+        <div className="rounded-3xl bg-indigo-50 p-4 mb-6">
+          <p className="font-semibold text-slate-800">Import from a website</p>
+          <p className="text-sm text-slate-600 mb-3">Paste a link and Homedash fills in the recipe for you to check.</p>
+          <div className="flex gap-2">
+            <input type="url" inputMode="url" placeholder="https://…" className={`${field} !bg-white`} value={importUrl} onChange={e => setImportUrl(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); runImport(); } }} />
+            <Btn type="button" size="lg" className="!h-12" onClick={() => runImport()} disabled={importing || !importUrl.trim()}>{importing ? 'Importing…' : 'Import'}</Btn>
+          </div>
+          {importError && <p className="text-sm text-rose-700 font-medium mt-2">{importError}</p>}
+        </div>
+      )}
+
+      <form id="recipe-form" onSubmit={submit} className="space-y-6 pb-2">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_14rem] gap-5">
+          <div className="space-y-4">
+            <div>
+              <label className={label} htmlFor="rf-name">Name</label>
+              <input id="rf-name" required className={field} value={f.name} onChange={e => set({ name: e.target.value })} placeholder="Nana's lasagne" />
+            </div>
+            <div>
+              <label className={label} htmlFor="rf-tags">Tags</label>
+              <input id="rf-tags" className={field} value={f.tags} onChange={e => set({ tags: e.target.value })} placeholder="Pasta, quick, freezer" />
+            </div>
+            <div className="flex gap-2">
+              <button type="button" aria-pressed={f.isFavorite} onClick={() => set({ isFavorite: !f.isFavorite })} className={`h-10 px-4 rounded-full text-sm font-semibold flex items-center gap-1.5 border ${f.isFavorite ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white border-slate-200 text-slate-600'}`}>
+                <Icon.Heart filled={f.isFavorite} className="w-4 h-4" /> Favourite
+              </button>
+              <button type="button" aria-pressed={f.isNew} onClick={() => set({ isNew: !f.isNew })} className={`h-10 px-4 rounded-full text-sm font-semibold border ${f.isNew ? 'bg-indigo-700 border-indigo-700 text-white' : 'bg-white border-slate-200 text-slate-600'}`}>
+                Not tried yet
+              </button>
+            </div>
+          </div>
+          <div>
+            <span className={label}>Photo</span>
+            {preview ? (
+              <div className="relative h-40 rounded-2xl overflow-hidden">
+                <img src={preview} className="w-full h-full object-cover" alt="" />
+                <button type="button" onClick={() => { setFile(null); setPreview(null); set({ imageUrl: '' }); }} className="absolute top-2 right-2 h-8 px-3 rounded-full bg-white/90 text-sm font-semibold text-slate-700 shadow">Change</button>
+              </div>
+            ) : (
+              <label className="flex flex-col items-center justify-center h-40 rounded-2xl border-2 border-dashed border-slate-300 cursor-pointer hover:bg-slate-50 text-slate-500">
+                <Icon.Plus className="w-6 h-6 mb-1" />
+                <span className="text-sm font-semibold">Take or choose a photo</span>
+                <input type="file" className="hidden" accept="image/*" onChange={onFile} />
+              </label>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-display text-xl text-slate-900">Ingredients</span>
+            <button type="button" onClick={() => { setPaste('ingredients'); setPasteText(''); }} className="text-sm font-semibold text-indigo-700">Paste a list</button>
+          </div>
+          <div className="space-y-2">
+            {f.ingredients.map((ing, i) => (
+              <div key={i} className="flex gap-2">
+                <input aria-label="Amount" placeholder="2" className={`${field} !w-16 !px-2 text-center`} value={ing.amount} onChange={e => updateIng(i, 'amount', e.target.value)} />
+                <input aria-label="Unit" placeholder="cups" className={`${field} !w-20 !px-2 text-center`} value={ing.unit} onChange={e => updateIng(i, 'unit', e.target.value)} />
+                <input aria-label="Ingredient" placeholder="Flour" className={`${field} flex-1 min-w-0`} value={ing.item} onChange={e => updateIng(i, 'item', e.target.value)} />
+                <button type="button" aria-label="Remove ingredient" onClick={() => set({ ingredients: f.ingredients.filter((_, j) => j !== i) })} className="w-10 shrink-0 text-slate-400 hover:text-rose-600 text-lg">✕</button>
+              </div>
+            ))}
+            <Btn type="button" variant="ghost" size="sm" onClick={() => set({ ingredients: [...f.ingredients, { amount: '', unit: '', item: '' }] })} icon={<Icon.Plus className="w-4 h-4" />}>Add ingredient</Btn>
+          </div>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-display text-xl text-slate-900">Method</span>
+            <button type="button" onClick={() => { setPaste('method'); setPasteText(''); }} className="text-sm font-semibold text-indigo-700">Paste the method</button>
+          </div>
+          <div className="space-y-2">
+            {f.instructions.map((step, i) => (
+              <div key={i} className="flex gap-2 items-start">
+                <span className="w-6 pt-3 text-right text-slate-400 font-semibold shrink-0">{step.isHeader ? '' : f.instructions.slice(0, i + 1).filter(s => !s.isHeader).length}</span>
+                <textarea
+                  rows={step.isHeader ? 1 : 2}
+                  aria-label={step.isHeader ? 'Section heading' : 'Step'}
+                  placeholder={step.isHeader ? 'Section heading, e.g. For the sauce' : 'What to do…'}
+                  className={`flex-1 min-w-0 rounded-2xl px-4 py-3 text-[16px] outline-none resize-y focus:ring-2 focus:ring-indigo-200 ${step.isHeader ? 'bg-indigo-50 font-semibold text-indigo-800' : 'bg-slate-100 focus:bg-white'}`}
+                  value={step.text}
+                  onChange={e => updateStep(i, { text: e.target.value })}
+                />
+                <div className="flex flex-col gap-1 shrink-0">
+                  <button type="button" onClick={() => updateStep(i, { isHeader: !step.isHeader })} title="Make this a section heading" className={`h-9 px-2 rounded-xl text-xs font-semibold ${step.isHeader ? 'bg-indigo-700 text-white' : 'bg-slate-100 text-slate-500'}`}>Heading</button>
+                  <button type="button" aria-label="Remove step" onClick={() => set({ instructions: f.instructions.filter((_, j) => j !== i) })} className="h-9 text-slate-400 hover:text-rose-600">✕</button>
+                </div>
+              </div>
+            ))}
+            <Btn type="button" variant="ghost" size="sm" onClick={() => set({ instructions: [...f.instructions, { text: '', isHeader: false }] })} icon={<Icon.Plus className="w-4 h-4" />}>Add step</Btn>
+          </div>
+        </div>
+      </form>
+
+      <Sheet
+        open={!!paste}
+        onClose={() => setPaste(null)}
+        title={paste === 'ingredients' ? 'Paste ingredients' : 'Paste the method'}
+        footer={<Btn size="lg" className="w-full" onClick={applyPaste} disabled={!pasteText.trim()}>Add {paste === 'ingredients' ? 'ingredients' : 'steps'}</Btn>}
+      >
+        <p className="text-sm text-slate-500 mb-3">{paste === 'ingredients' ? 'One ingredient per line, like "2 cups flour". Amounts and units are split out for you.' : 'One step per line. Lines ending in a colon become section headings.'}</p>
+        <textarea autoFocus rows={10} className="w-full rounded-2xl bg-slate-100 p-4 text-[16px] outline-none focus:bg-white focus:ring-2 focus:ring-indigo-200" value={pasteText} onChange={e => setPasteText(e.target.value)} />
+      </Sheet>
+    </Sheet>
+  );
+};
+
+// --- Library ---
 interface RecipeBookProps {
   recipes: Recipe[];
+  weeklyPlan: WeeklyPlan;
   onRefresh: () => void;
   onAddRecipe: (recipe: Omit<Recipe, 'id'>, imageFile?: File) => Promise<boolean>;
   onUpdateRecipe: (recipe: Recipe, imageFile?: File) => Promise<boolean>;
   onDeleteRecipe: (id: string) => Promise<boolean>;
+  onAddMeal: (day: string, recipe: Recipe) => void;
   hiddenIngredients: string[];
   onUpdateHidden: (hidden: string[]) => void;
   onAddManualShoppingItem: (name: string) => void;
+  /** A recipe opened from elsewhere (Home, the week). "cook:<id>" opens it in cook mode. */
   externalIdToOpen?: string | null;
   onClearExternalId?: () => void;
+  /** A link shared into Homedash to import. */
+  importUrl?: string | null;
+  onImportHandled?: () => void;
 }
 
-const RecipeBook: React.FC<RecipeBookProps> = ({ 
-  recipes, 
-  onRefresh, 
-  onAddRecipe, 
-  onUpdateRecipe, 
-  onDeleteRecipe,
-  hiddenIngredients,
-  onUpdateHidden,
-  onAddManualShoppingItem,
-  externalIdToOpen,
-  onClearExternalId
+const FILTERS = [
+  { id: 'all', label: 'All' },
+  { id: 'favorites', label: 'Favourites' },
+  { id: 'new', label: 'Not tried yet' },
+] as const;
+
+const RecipeBook: React.FC<RecipeBookProps> = ({
+  recipes, weeklyPlan, onAddRecipe, onUpdateRecipe, onDeleteRecipe, onAddMeal,
+  hiddenIngredients, onUpdateHidden, onAddManualShoppingItem, externalIdToOpen, onClearExternalId, importUrl, onImportHandled,
 }) => {
-  const isHome = useIsHome();
-  const [cooking, setCooking] = useState(false);
+  const isPhone = useIsPhone();
   const [search, setSearch] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'favorites' | 'new'>('all');
-  const [isAdding, setIsAdding] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isScraping, setIsScraping] = useState(false);
-  const [importUrl, setImportUrl] = useState('');
-  
-  const [viewingRecipe, setViewingRecipe] = useState<Recipe | null>(null);
-  const [scale, setScale] = useState(1); 
-  
-  // Form State
-  const [formId, setFormId] = useState('');
-  const [formName, setFormName] = useState('');
-  const [formImageUrl, setFormImageUrl] = useState('');
-  const [formTags, setFormTags] = useState('');
-  const [formIngredients, setFormIngredients] = useState<Ingredient[]>([]);
-  const [formInstructions, setFormInstructions] = useState<Instruction[]>([]);
-  const [formIsFavorite, setFormIsFavorite] = useState(false);
-  const [formIsNew, setFormIsNew] = useState(true);
+  const [viewingId, setViewingId] = useState<string | null>(null);
+  const [cookOnOpen, setCookOnOpen] = useState(false);
+  const [form, setForm] = useState<null | { initial: FormState; editing: boolean; autoImport?: string | null }>(null);
 
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-
-  // Handle opening recipe from Dashboard
   useEffect(() => {
-    if (externalIdToOpen) {
-      const r = recipes.find(rec => rec.id === externalIdToOpen);
-      if (r) {
-        setScale(1);
-        setViewingRecipe(r);
-      }
-      onClearExternalId?.();
-    }
+    if (!externalIdToOpen) return;
+    const cook = externalIdToOpen.startsWith('cook:');
+    const id = externalIdToOpen.replace(/^cook:/, '');
+    if (recipes.some(r => r.id === id)) { setViewingId(id); setCookOnOpen(cook); }
+    onClearExternalId?.();
   }, [externalIdToOpen, recipes, onClearExternalId]);
 
+  useEffect(() => {
+    if (!importUrl) return;
+    setForm({ initial: emptyForm(), editing: false, autoImport: importUrl });
+    onImportHandled?.();
+  }, [importUrl, onImportHandled]);
+
+  const viewing = recipes.find(r => r.id === viewingId) || null;
+
   const filtered = useMemo(() => {
+    const q = search.toLowerCase();
     return recipes.filter(r => {
-      const matchesSearch = r.name.toLowerCase().includes(search.toLowerCase());
-      if (filterMode === 'favorites') return matchesSearch && r.isFavorite;
-      if (filterMode === 'new') return matchesSearch && r.isNew;
-      return matchesSearch;
+      const matches = !q || r.name.toLowerCase().includes(q) || r.tags.some(t => t.toLowerCase().includes(q)) || r.ingredients.some(i => i.item.toLowerCase().includes(q));
+      if (filterMode === 'favorites') return matches && r.isFavorite;
+      if (filterMode === 'new') return matches && r.isNew;
+      return matches;
     });
   }, [recipes, search, filterMode]);
 
-  const resetForm = () => {
-    setFormId(''); setFormName(''); setFormImageUrl(''); setFormTags('');
-    setFormIngredients([{ amount: '', unit: '', item: '' }]);
-    setFormInstructions([{ text: '', isHeader: false }]);
-    setFormIsFavorite(false); setFormIsNew(true);
-    setSelectedFile(null); setPreviewUrl(null); setScale(1);
+  const plannedOn = (id: string) => DAYS.filter(d => (weeklyPlan[d] || []).some(r => r.id === id));
+
+  const togglePantry = (item: string) => {
+    const clean = item.toLowerCase().trim();
+    onUpdateHidden(hiddenIngredients.includes(clean) ? hiddenIngredients.filter(i => i !== clean) : [...hiddenIngredients, clean]);
   };
 
-  const startEditing = (recipe: Recipe) => {
-    setFormId(recipe.id);
-    setFormName(recipe.name);
-    setFormImageUrl(recipe.imageUrl);
-    setFormTags(recipe.tags.join(', '));
-    setFormIngredients(recipe.ingredients.length ? [...recipe.ingredients] : [{ amount: '', unit: '', item: '' }]);
-    setFormInstructions(recipe.instructions.length ? [...recipe.instructions] : [{ text: '', isHeader: false }]);
-    setFormIsFavorite(!!recipe.isFavorite);
-    setFormIsNew(!!recipe.isNew);
-    setPreviewUrl(recipe.imageUrl);
-    setIsEditing(true); setViewingRecipe(null); setIsAdding(true);
-  };
-
-  const closeModal = () => {
-    setIsAdding(false); setIsEditing(false); resetForm();
-  };
-
-  const handleScrape = async () => {
-    if (!importUrl.trim()) return;
-    setIsScraping(true);
-    try {
-      // The AI call now happens on the server (api/importRecipe), so the Gemini key stays private.
-      const res = await fetch(apiUrl('/api/importRecipe'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: importUrl.trim(), pin: localStorage.getItem('family_pin') })
-      });
-      if (!res.ok) throw new Error(`Import failed (${res.status})`);
-      const data = await res.json();
-
-      setFormName(data.name || '');
-      setFormIngredients(data.ingredients || []);
-      setFormInstructions(data.instructions || []);
-      setFormTags(data.tags || '');
-      setFormImageUrl(data.imageUrl || '');
-      setPreviewUrl(data.imageUrl || null);
-      setImportUrl('');
-    } catch (err) { alert("AI Import failed."); } finally { setIsScraping(false); }
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setSelectedFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => setPreviewUrl(reader.result as string);
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formName) return;
-    setIsSubmitting(true);
-    const recipeData = {
-      name: formName,
-      ingredients: formIngredients.filter(i => i.item.trim() !== ''),
-      instructions: formInstructions.filter(i => i.text.trim() !== ''),
-      tags: formTags.split(',').map(s => s.trim()).filter(s => s),
-      imageUrl: formImageUrl || `https://picsum.photos/seed/${formName}/400/300`,
-      isFavorite: formIsFavorite,
-      isNew: formIsNew
+  const saveForm = async (f: FormState, file?: File) => {
+    const data = {
+      name: f.name.trim(),
+      ingredients: f.ingredients.filter(i => i.item.trim() !== ''),
+      instructions: f.instructions.filter(i => i.text.trim() !== ''),
+      tags: f.tags.split(',').map(s => s.trim()).filter(Boolean),
+      imageUrl: f.imageUrl || `https://picsum.photos/seed/${encodeURIComponent(f.name)}/800/600`,
+      isFavorite: f.isFavorite,
+      isNew: f.isNew,
     };
-    let success = false;
-    if (isEditing) success = await onUpdateRecipe({ ...recipeData, id: formId }, selectedFile || undefined);
-    else success = await onAddRecipe(recipeData, selectedFile || undefined);
-    if (success) closeModal();
-    setIsSubmitting(false);
+    return f.id ? onUpdateRecipe({ ...data, id: f.id }, file) : onAddRecipe(data, file);
   };
 
-  const toggleFavoriteShortcut = async (e: React.MouseEvent, recipe: Recipe) => {
-    e.stopPropagation();
-    await onUpdateRecipe({ ...recipe, isFavorite: !recipe.isFavorite });
-  };
-
-  const updateIngredient = (index: number, field: keyof Ingredient, value: string) => {
-    const newIngs = [...formIngredients];
-    newIngs[index] = { ...newIngs[index], [field]: value };
-    setFormIngredients(newIngs);
-  };
-  const addIngredientLine = () => setFormIngredients([...formIngredients, { amount: '', unit: '', item: '' }]);
-  const removeIngredientLine = (index: number) => setFormIngredients(formIngredients.filter((_, i) => i !== index));
-  const updateInstruction = (index: number, field: keyof Instruction, value: any) => {
-    const newInst = [...formInstructions];
-    newInst[index] = { ...newInst[index], [field]: value };
-    setFormInstructions(newInst);
-  };
-  const addInstructionLine = () => setFormInstructions([...formInstructions, { text: '', isHeader: false }]);
-  const removeInstructionLine = (index: number) => setFormInstructions(formInstructions.filter((_, i) => i !== index));
-
-  const toggleIngredientShopping = (ingredientItem: string) => {
-    const clean = ingredientItem.toLowerCase().trim();
-    if (hiddenIngredients.includes(clean)) onUpdateHidden(hiddenIngredients.filter(i => i !== clean));
-    else onUpdateHidden([...hiddenIngredients, clean]);
-  };
-
-  const handleDelete = async (id: string) => {
-    if (await onDeleteRecipe(id)) setViewingRecipe(null);
-  };
+  const editRecipe = (r: Recipe) => setForm({
+    editing: true,
+    initial: {
+      id: r.id, name: r.name, imageUrl: r.imageUrl, tags: r.tags.join(', '),
+      ingredients: r.ingredients.length ? [...r.ingredients] : [{ amount: '', unit: '', item: '' }],
+      instructions: r.instructions.length ? [...r.instructions] : [{ text: '', isHeader: false }],
+      isFavorite: !!r.isFavorite, isNew: !!r.isNew,
+    },
+  });
 
   return (
-    <div className="flex flex-col lg:flex-row gap-8">
-      {/* SIDEBAR INDEX */}
-      <div className="w-full lg:w-48 space-y-2">
-        <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 px-4 mb-4">Library</h3>
-        {[
-          { id: 'all', label: 'All Recipes', count: recipes.length },
-          { id: 'favorites', label: 'Favorites', count: recipes.filter(r => r.isFavorite).length },
-          { id: 'new', label: 'New/Untried', count: recipes.filter(r => r.isNew).length }
-        ].map(btn => (
-          <button 
-            key={btn.id}
-            onClick={() => setFilterMode(btn.id as any)}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl text-sm font-bold transition-all ${filterMode === btn.id ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'text-slate-500 hover:bg-white'}`}
-          >
-            {btn.label}
-            <span className={`text-[10px] px-2 py-0.5 rounded-full ${filterMode === btn.id ? 'bg-white/20' : 'bg-slate-100'}`}>{btn.count}</span>
-          </button>
-        ))}
-      </div>
+    <div className="pb-16">
+      <PageTitle
+        title="Recipes"
+        subtitle={`${recipes.length} in the book`}
+        actions={<Btn onClick={() => setForm({ initial: emptyForm(), editing: false })} icon={<Icon.Plus className="w-4 h-4" />}>Add recipe</Btn>}
+      />
 
-      <div className="flex-1 space-y-8">
-        <div className="flex flex-col lg:flex-row gap-6 justify-between items-start lg:items-center">
-          <div className="relative w-full max-w-lg">
-            <input type="text" placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full pl-12 pr-6 py-4 bg-white border border-slate-200 rounded-2xl shadow-sm focus:ring-4 focus:ring-indigo-50 outline-none transition-all" />
-            <svg className="absolute left-4 top-4.5 w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-          </div>
-          <div className="flex gap-3 w-full lg:w-auto">
-            <button onClick={() => { resetForm(); setIsAdding(true); }} className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-6 py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg hover:bg-indigo-700 transition-all">+ New Recipe</button>
-            <button onClick={onRefresh} className="flex-1 lg:flex-none px-6 py-4 bg-white border border-slate-200 rounded-2xl font-bold hover:bg-slate-50 transition-all">Sync</button>
-          </div>
+      <div className="flex flex-col md:flex-row gap-3 md:items-center mb-6">
+        <div className="relative flex-1 md:max-w-md">
+          <Icon.Search className="w-5 h-5 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+          <input type="search" placeholder="Search by name, tag or ingredient" value={search} onChange={e => setSearch(e.target.value)}
+            className="w-full h-12 pl-12 pr-4 bg-white border border-slate-200 rounded-2xl text-[16px] outline-none focus:border-indigo-500" />
         </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-8">
-          {filtered.map(recipe => (
-            <div key={recipe.id} onClick={() => { setScale(1); setViewingRecipe(recipe); }} className="bg-white rounded-[2.5rem] overflow-hidden shadow-sm border border-slate-100 transition-all hover:shadow-xl group cursor-pointer relative">
-              <button 
-                onClick={(e) => toggleFavoriteShortcut(e, recipe)}
-                className={`absolute top-4 right-4 z-10 w-10 h-10 rounded-full backdrop-blur-md flex items-center justify-center transition-all ${recipe.isFavorite ? 'bg-red-500 text-white shadow-lg' : 'bg-black/20 text-white hover:bg-black/40'}`}
-              >
-                <svg className="w-5 h-5" fill={recipe.isFavorite ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>
-              </button>
-
-              <div className="relative h-56">
-                <img src={recipe.imageUrl} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt={recipe.name} />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
-                <div className="absolute bottom-4 left-4 right-4">
-                  <h4 className="text-xl font-bold text-white mb-1 drop-shadow-md">{recipe.name}</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {recipe.isNew && <span className="text-[8px] font-black text-white bg-emerald-500 px-2 py-0.5 rounded-full uppercase tracking-tighter">New</span>}
-                    {recipe.tags.slice(0, 1).map(tag => (
-                      <span key={tag} className="text-[8px] font-bold text-white/90 bg-white/20 backdrop-blur-md px-2 py-0.5 rounded-full uppercase tracking-tighter">{tag}</span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="p-6">
-                <p className="text-sm text-slate-500 font-medium line-clamp-2 leading-relaxed">
-                  {recipe.ingredients.map(i => i.item).join(' • ')}
-                </p>
-              </div>
-            </div>
+        <div className="flex gap-2 overflow-x-auto no-scrollbar">
+          {FILTERS.map(btn => (
+            <button key={btn.id} onClick={() => setFilterMode(btn.id)} aria-pressed={filterMode === btn.id}
+              className={`h-10 px-4 rounded-full text-sm font-semibold whitespace-nowrap ${filterMode === btn.id ? 'bg-indigo-700 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>
+              {btn.label}
+            </button>
           ))}
         </div>
       </div>
 
-      {/* VIEW MODAL */}
-      {viewingRecipe && (
-        <div className="fixed inset-0 z-[100] bg-white md:bg-black/60 md:backdrop-blur-md flex items-center justify-center md:p-6">
-          <div className="bg-white w-full h-full md:max-w-7xl md:h-[90vh] md:rounded-[3rem] shadow-2xl overflow-hidden flex flex-col relative">
-            <div className="absolute top-6 right-6 z-20 flex gap-3">
-               {isHome && (
-                 <button
-                   onClick={() => { startCooking(); setCooking(true); setTimeout(() => setCooking(false), 4000); }}
-                   className={`px-4 py-2 font-bold rounded-full shadow-sm transition-all ${cooking ? 'bg-emerald-500 text-white' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
-                 >
-                   {cooking ? 'Music & lights on' : 'Start cooking'}
-                 </button>
-               )}
-               <button onClick={() => startEditing(viewingRecipe)} className="px-4 py-2 bg-white/90 backdrop-blur text-indigo-600 font-bold rounded-full shadow-sm hover:bg-indigo-50 transition-all">Edit</button>
-               <button onClick={() => handleDelete(viewingRecipe.id)} className="px-4 py-2 bg-white/90 backdrop-blur text-red-500 font-bold rounded-full shadow-sm hover:bg-red-50 transition-all">Delete</button>
-               <button onClick={() => setViewingRecipe(null)} className="w-10 h-10 bg-slate-100 text-slate-500 rounded-full flex items-center justify-center hover:bg-slate-200 transition-all">✕</button>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto">
-              <div className="grid grid-cols-1 lg:grid-cols-[400px_1fr] h-full">
-                <div className="relative h-64 lg:h-full bg-slate-100">
-                  <img src={viewingRecipe.imageUrl} className="w-full h-full object-cover" alt="" />
-                </div>
-                <div className="p-8 lg:p-12 space-y-10">
-                  <div>
-                    <div className="flex gap-2 mb-4">
-                      {viewingRecipe.isNew && <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full uppercase">New/Untried</span>}
-                      {viewingRecipe.tags.map(t => <span key={t} className="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full uppercase">{t}</span>)}
-                    </div>
-                    <h2 className="text-5xl font-black text-slate-900 tracking-tight leading-tight">{viewingRecipe.name}</h2>
-                  </div>
-
-                  <div className="grid grid-cols-1 xl:grid-cols-[1fr_1.5fr] gap-12">
-                    <div>
-                      <div className="flex justify-between items-center mb-6">
-                        <h3 className="text-sm font-black uppercase tracking-widest text-slate-400">Ingredients</h3>
-                        <div className="flex bg-slate-100 rounded-lg p-1">
-                          {[0.5, 1, 2].map(s => (
-                             <button key={s} onClick={() => setScale(s)} className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${scale === s ? 'bg-white shadow text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>
-                               {s === 0.5 ? '1/2' : s}x
-                             </button>
-                          ))}
-                        </div>
-                      </div>
-                      <p className="text-xs font-semibold text-slate-400 -mt-3 mb-4">
-                        <span className="text-amber-600 font-bold">Pantry</span> items stay off the shopping list. Tap the label to change it.
-                      </p>
-                      <div className="space-y-2">
-                        {viewingRecipe.ingredients.map((ing, idx) => {
-                          const cleanName = ing.item.toLowerCase().trim();
-                          const isPantry = hiddenIngredients.includes(cleanName);
-                          return (
-                            <div key={idx} className={`flex items-center gap-3 p-3 rounded-2xl group/ing transition-all border ${isPantry ? 'bg-amber-50/60 border-amber-100' : 'bg-slate-50 border-transparent hover:bg-white hover:border-indigo-100'}`}>
-                              <span className="flex-1 min-w-0 text-sm font-bold leading-tight text-slate-700 select-none">
-                                <span className="text-indigo-600 mr-2">{scaleIngredient(ing.amount, scale)} {ing.unit}</span>
-                                {ing.item}
-                              </span>
-
-                              <button
-                                onClick={() => toggleIngredientShopping(ing.item)}
-                                title={isPantry ? 'Usually in the pantry, so not added to the shopping list. Tap to add it to lists.' : 'Goes on the shopping list. Tap if you usually have it.'}
-                                className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-black uppercase tracking-wide transition-colors ${isPantry ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-white text-slate-400 border border-slate-200 hover:text-indigo-600 hover:border-indigo-200'}`}
-                              >
-                                {isPantry ? (
-                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V20h14V9.5" /></svg>
-                                ) : (
-                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><circle cx="8" cy="21" r="1" /><circle cx="19" cy="21" r="1" /><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" /></svg>
-                                )}
-                                {isPantry ? 'Pantry' : 'On list'}
-                              </button>
-
-                              <button
-                                onClick={() => onAddManualShoppingItem(`${ing.item} (${scaleIngredient(ing.amount, scale)} ${ing.unit})`)}
-                                className="touch-show opacity-0 group-hover/ing:opacity-100 p-2 bg-white text-indigo-600 rounded-xl shadow-sm hover:bg-indigo-600 hover:text-white transition-all shrink-0"
-                                title="Add to this week's list once (even if it's a pantry item)"
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <div className="xl:border-l xl:border-slate-100 xl:pl-12">
-                      <h3 className="text-sm font-black uppercase tracking-widest text-slate-400 mb-6">Method</h3>
-                      <div className="space-y-6">
-                        {viewingRecipe.instructions?.map((step, idx, all) => (
-                          step.isHeader ? (
-                            <h4 key={idx} className="text-xl font-bold text-slate-800 mt-10 mb-2 pb-2 border-b border-slate-100">{step.text}</h4>
-                          ) : (
-                            <div key={idx} className="flex gap-4 group">
-                              <div className="w-1 bg-indigo-100 rounded-full self-stretch group-hover:bg-indigo-300 transition-colors"></div>
-                              <p className="text-lg text-slate-600 leading-relaxed font-medium"><StepText text={step.text} label={`${viewingRecipe.name} (step ${all.slice(0, idx + 1).filter(s => !s.isHeader).length})`} /></p>
-                            </div>
-                          )
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
+      {filtered.length === 0 ? (
+        <p className="text-center text-slate-500 py-16">{recipes.length ? 'No recipes match that search.' : 'No recipes yet. Add your first one.'}</p>
+      ) : (
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-x-4 gap-y-6 md:gap-x-6 md:gap-y-8">
+          {filtered.map(recipe => (
+            <button key={recipe.id} onClick={() => { setCookOnOpen(false); setViewingId(recipe.id); }} className="group text-left min-w-0">
+              <div className="relative aspect-[4/3] rounded-2xl md:rounded-3xl overflow-hidden bg-slate-200">
+                <img src={recipe.imageUrl} alt="" loading="lazy" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                {recipe.isFavorite && (
+                  <span className="absolute top-2 right-2 w-8 h-8 rounded-full bg-white/90 text-orange-500 flex items-center justify-center shadow-sm">
+                    <Icon.Heart filled className="w-4 h-4" />
+                  </span>
+                )}
+                {plannedOn(recipe.id).length > 0 && (
+                  <span className="absolute bottom-2 left-2 px-2 py-1 rounded-full bg-indigo-700 text-white text-xs font-semibold">{plannedOn(recipe.id)[0].slice(0, 3)}</span>
+                )}
               </div>
-            </div>
-          </div>
+              <h3 className={`mt-2.5 font-semibold text-slate-900 leading-snug line-clamp-2 ${isPhone ? 'text-[15px]' : 'text-lg'}`}>{recipe.name}</h3>
+              <p className="text-sm text-slate-500 truncate">{recipe.isNew ? 'Not tried yet' : recipe.tags.slice(0, 2).join(', ') || `${recipe.ingredients.length} ingredients`}</p>
+            </button>
+          ))}
         </div>
       )}
 
-      {/* EDIT/ADD MODAL */}
-      {isAdding && (
-        <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-md flex items-start justify-center p-4 overflow-y-auto">
-          <div className="bg-white w-full max-w-3xl rounded-[2.5rem] shadow-2xl p-8 my-10 relative">
-            <button onClick={closeModal} className="absolute top-8 right-8 p-2 text-slate-400 hover:text-slate-900 transition-colors">✕</button>
-            <h3 className="text-3xl font-black text-slate-900 mb-2">{isEditing ? 'Edit Recipe' : 'New Recipe'}</h3>
-            
-            {!isEditing && (
-              <div className="mb-8 p-4 bg-indigo-50 rounded-3xl flex gap-2">
-                <input type="text" placeholder="Paste URL to import..." className="flex-1 bg-white border-none rounded-2xl px-4 py-2 text-sm outline-none" value={importUrl} onChange={e => setImportUrl(e.target.value)} />
-                <button onClick={handleScrape} disabled={isScraping || !importUrl} className="px-4 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 disabled:opacity-50 text-xs">
-                  {isScraping ? 'Thinking...' : 'AI Import'}
-                </button>
-              </div>
-            )}
+      {viewing && (
+        <RecipeView
+          key={viewing.id}
+          recipe={viewing}
+          startInCookMode={cookOnOpen}
+          hiddenIngredients={hiddenIngredients}
+          onTogglePantry={togglePantry}
+          onAddOnce={onAddManualShoppingItem}
+          onClose={() => setViewingId(null)}
+          onEdit={() => editRecipe(viewing)}
+          onDelete={async () => { if (await onDeleteRecipe(viewing.id)) setViewingId(null); }}
+          onFavourite={() => onUpdateRecipe({ ...viewing, isFavorite: !viewing.isFavorite })}
+          onAddMeal={day => onAddMeal(day, viewing)}
+          plannedOn={plannedOn(viewing.id)}
+        />
+      )}
 
-            <form onSubmit={handleSubmit} className="space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  <label className="block text-xs font-black uppercase text-slate-400">Name</label>
-                  <input required type="text" className="w-full bg-slate-50 rounded-xl px-4 py-2 outline-none border border-transparent focus:border-indigo-200" value={formName} onChange={e => setFormName(e.target.value)} />
-                  <div className="flex gap-4">
-                    <label className="flex-1 flex items-center gap-2 p-3 bg-slate-50 rounded-xl border border-slate-100 cursor-pointer">
-                      <input type="checkbox" checked={formIsFavorite} onChange={e => setFormIsFavorite(e.target.checked)} className="accent-red-500 w-4 h-4" />
-                      <span className="text-xs font-bold text-slate-600">Favorite</span>
-                    </label>
-                    <label className="flex-1 flex items-center gap-2 p-3 bg-slate-50 rounded-xl border border-slate-100 cursor-pointer">
-                      <input type="checkbox" checked={formIsNew} onChange={e => setFormIsNew(e.target.checked)} className="accent-emerald-500 w-4 h-4" />
-                      <span className="text-xs font-bold text-slate-600">Untried</span>
-                    </label>
-                  </div>
-                </div>
-                <div>
-                   <label className="block text-xs font-black uppercase text-slate-400 mb-2">Photo</label>
-                   {previewUrl ? (
-                    <div className="relative h-32 w-full rounded-2xl overflow-hidden border-2 border-indigo-100">
-                      <img src={previewUrl} className="w-full h-full object-cover" alt="" />
-                      <button type="button" onClick={() => { setSelectedFile(null); setPreviewUrl(null); }} className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full shadow-lg">✕</button>
-                    </div>
-                  ) : (
-                    <label className="flex flex-col items-center justify-center h-32 w-full border-2 border-dashed border-slate-200 rounded-2xl cursor-pointer hover:bg-slate-50 transition-all group">
-                      <svg className="w-8 h-8 text-slate-300 group-hover:text-indigo-400 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                      <p className="text-[10px] font-black uppercase text-slate-400">Upload</p>
-                      <input type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
-                    </label>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-black uppercase text-slate-400 mb-2">Ingredients</label>
-                <div className="space-y-2">
-                  {formIngredients.map((ing, i) => (
-                    <div key={i} className="flex gap-2">
-                      <input type="text" placeholder="1/2" className="w-16 bg-slate-50 rounded-lg px-2 py-2 text-sm text-center border border-transparent focus:border-indigo-200 outline-none" value={ing.amount} onChange={e => updateIngredient(i, 'amount', e.target.value)} />
-                      <input type="text" placeholder="cup" className="w-16 bg-slate-50 rounded-lg px-2 py-2 text-sm text-center border border-transparent focus:border-indigo-200 outline-none" value={ing.unit} onChange={e => updateIngredient(i, 'unit', e.target.value)} />
-                      <input type="text" placeholder="Flour" className="flex-1 bg-slate-50 rounded-lg px-3 py-2 text-sm font-medium border border-transparent focus:border-indigo-200 outline-none" value={ing.item} onChange={e => updateIngredient(i, 'item', e.target.value)} />
-                      <button type="button" onClick={() => removeIngredientLine(i)} className="text-slate-300 hover:text-red-500 px-2">✕</button>
-                    </div>
-                  ))}
-                  <button type="button" onClick={addIngredientLine} className="text-xs font-bold text-indigo-500 py-2">+ Add Item</button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-black uppercase text-slate-400 mb-2">Instructions</label>
-                <div className="space-y-2">
-                  {formInstructions.map((inst, i) => (
-                    <div key={i} className="flex gap-2 items-center">
-                      <input type="text" placeholder={inst.isHeader ? "Section Header" : "Step description..."} className={`flex-1 rounded-lg px-3 py-2 text-sm outline-none border border-transparent focus:border-indigo-200 ${inst.isHeader ? 'bg-indigo-50 font-bold text-indigo-700' : 'bg-slate-50'}`} value={inst.text} onChange={e => updateInstruction(i, 'text', e.target.value)} />
-                      <label className="flex items-center gap-1 cursor-pointer bg-slate-50 px-2 py-2 rounded-lg">
-                        <input type="checkbox" checked={inst.isHeader} onChange={e => updateInstruction(i, 'isHeader', e.target.checked)} className="accent-indigo-600 w-4 h-4" />
-                        <span className="text-[10px] font-bold uppercase text-slate-400">Hdr</span>
-                      </label>
-                      <button type="button" onClick={() => removeInstructionLine(i)} className="text-slate-300 hover:text-red-500 px-2">✕</button>
-                    </div>
-                  ))}
-                  <button type="button" onClick={addInstructionLine} className="text-xs font-bold text-indigo-500 py-2">+ Add Step</button>
-                </div>
-              </div>
-              
-              <div className="flex gap-4 pt-4 border-t border-slate-100">
-                <button type="button" onClick={closeModal} className="flex-1 py-3 font-bold text-slate-400 hover:bg-slate-50 rounded-xl transition-all">Cancel</button>
-                <button type="submit" disabled={isSubmitting} className="flex-[2] py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg hover:bg-indigo-700 disabled:opacity-50 transition-all">
-                  {isSubmitting ? 'Saving...' : 'Save Recipe'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {form && (
+        <RecipeForm
+          initial={form.initial}
+          editing={form.editing}
+          autoImport={form.autoImport}
+          onCancel={() => setForm(null)}
+          onSave={saveForm}
+        />
       )}
     </div>
   );

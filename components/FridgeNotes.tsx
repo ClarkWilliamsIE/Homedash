@@ -1,6 +1,7 @@
 // components/FridgeNotes.tsx
 import React, { useState } from 'react';
 import { FamilyNote } from '../types';
+import { Btn, Icon, Panel } from './ui';
 
 interface FridgeNotesProps {
   notes: FamilyNote[];
@@ -9,6 +10,10 @@ interface FridgeNotesProps {
   className?: string;
 }
 
+// Paper colours for the notes, picked from the note's id so each keeps its colour.
+const PAPERS = ['#f7ecc9', '#e6efe3', '#f6e2d6', '#ece6f2'];
+const paperFor = (id: string) => PAPERS[[...id].reduce((n, c) => n + c.charCodeAt(0), 0) % PAPERS.length];
+
 const FridgeNotes: React.FC<FridgeNotesProps> = ({ notes, onAddNote, onRemoveNote, className = '' }) => {
   const [noteText, setNoteText] = useState('');
   const submit = () => {
@@ -16,36 +21,33 @@ const FridgeNotes: React.FC<FridgeNotesProps> = ({ notes, onAddNote, onRemoveNot
   };
 
   return (
-    <div className={`bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 flex flex-col ${className}`}>
-      <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
-        <svg className="w-5 h-5 text-amber-500" fill="currentColor" viewBox="0 0 20 20"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" /><path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" /></svg>
-        Fridge Notes
-      </h3>
-
-      <div className="flex-1 space-y-4 overflow-y-auto pr-1 mb-6">
-        {notes.length === 0 && <p className="text-sm text-slate-400 text-center py-6">No notes yet.</p>}
-        {notes.map(note => (
-          <div key={note.id} className={`${note.color} p-4 rounded-2xl shadow-sm relative group rotate-[-1deg] hover:rotate-0 transition-transform`}>
-            <button aria-label="Remove note" onClick={() => onRemoveNote(note.id)} className="touch-show absolute top-1 right-2 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
-            <p className="text-sm font-medium text-slate-700 leading-relaxed pr-4">{note.text}</p>
-          </div>
+    <Panel title="Fridge notes" className={`flex flex-col ${className}`} bodyClassName="flex-1 flex flex-col">
+      <ul className="flex-1 space-y-2.5 mb-4">
+        {notes.length === 0 && <li className="text-slate-500">Leave a note for the family.</li>}
+        {notes.map((note, i) => (
+          <li
+            key={note.id}
+            className="relative flex items-start gap-2 pl-4 pr-1.5 py-3 rounded-xl shadow-sm"
+            style={{ background: paperFor(note.id), transform: `rotate(${i % 2 ? 0.6 : -0.6}deg)` }}
+          >
+            <p className="flex-1 text-[15px] text-slate-800 leading-relaxed">{note.text}</p>
+            <button aria-label="Remove note" onClick={() => onRemoveNote(note.id)} className="w-8 h-8 shrink-0 rounded-full text-slate-500 hover:bg-black/5 hover:text-slate-900">✕</button>
+          </li>
         ))}
-      </div>
+      </ul>
 
-      <div className="mt-auto relative">
+      <form onSubmit={e => { e.preventDefault(); submit(); }} className="flex gap-2">
         <input
           type="text"
-          placeholder="Post a note..."
-          className="w-full bg-slate-50 border-none rounded-2xl px-4 py-3 pr-12 text-sm focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+          placeholder="Write a note…"
+          aria-label="New note"
+          className="flex-1 min-w-0 h-12 bg-slate-100 rounded-2xl px-4 text-[16px] outline-none focus:bg-white focus:ring-2 focus:ring-indigo-200"
           value={noteText}
           onChange={(e) => setNoteText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
         />
-        <button aria-label="Add note" onClick={submit} className="absolute right-2 top-2 p-1 text-indigo-600 hover:bg-white rounded-lg transition-colors">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
-        </button>
-      </div>
-    </div>
+        <Btn type="submit" variant="secondary" className="!h-12 w-12 !px-0" aria-label="Add note" icon={<Icon.Plus className="w-5 h-5" />} />
+      </form>
+    </Panel>
   );
 };
 

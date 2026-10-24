@@ -116,15 +116,16 @@ export const useSettings = () => useSyncExternalStore(settingsStore.subscribe, s
 const GROUP_MEMBERS = [K, FR, ST];
 
 export const TONE_STYLES: Record<Tone, string> = {
-  orange: 'from-orange-400 to-rose-500 shadow-orange-200',
-  amber: 'from-amber-300 to-orange-400 shadow-amber-200',
-  rose: 'from-rose-400 to-pink-500 shadow-rose-200',
-  emerald: 'from-emerald-400 to-teal-500 shadow-emerald-200',
-  teal: 'from-teal-400 to-cyan-500 shadow-teal-200',
-  sky: 'from-sky-400 to-blue-500 shadow-sky-200',
-  indigo: 'from-indigo-500 to-blue-600 shadow-indigo-200',
-  violet: 'from-violet-500 to-fuchsia-500 shadow-violet-200',
-  slate: 'from-slate-500 to-slate-700 shadow-slate-200',
+  // Earthy, kitchen-friendly colours (keys kept so saved moods still match).
+  orange: 'from-orange-500 to-orange-600',
+  amber: 'from-[#c99a3a] to-[#ad8128]',
+  rose: 'from-[#b9645f] to-[#9c4e4a]',
+  emerald: 'from-indigo-500 to-indigo-700',
+  teal: 'from-[#4f8a86] to-[#3b6f6b]',
+  sky: 'from-[#5b7fa3] to-[#466889]',
+  indigo: 'from-indigo-700 to-indigo-900',
+  violet: 'from-[#7a6493] to-[#5f4c76]',
+  slate: 'from-slate-600 to-slate-800',
 };
 
 const step = (action: string, entityId: string | string[], data?: Record<string, any>) => ({
