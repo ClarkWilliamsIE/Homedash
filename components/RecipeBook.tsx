@@ -362,24 +362,37 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
                           ))}
                         </div>
                       </div>
+                      <p className="text-xs font-semibold text-slate-400 -mt-3 mb-4">
+                        <span className="text-amber-600 font-bold">Pantry</span> items stay off the shopping list. Tap the label to change it.
+                      </p>
                       <div className="space-y-2">
                         {viewingRecipe.ingredients.map((ing, idx) => {
                           const cleanName = ing.item.toLowerCase().trim();
-                          const isGlobalExcluded = hiddenIngredients.includes(cleanName);
+                          const isPantry = hiddenIngredients.includes(cleanName);
                           return (
-                            <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl group/ing hover:bg-white transition-all border border-transparent hover:border-indigo-100">
-                              <span 
-                                onClick={() => toggleIngredientShopping(ing.item)}
-                                className={`flex-1 text-sm font-bold cursor-pointer select-none leading-tight ${isGlobalExcluded ? 'text-slate-300 line-through' : 'text-slate-700'}`}
-                              >
-                                <span className={`${isGlobalExcluded ? 'text-slate-300' : 'text-indigo-600'} mr-2`}>{scaleIngredient(ing.amount, scale)} {ing.unit}</span>
+                            <div key={idx} className={`flex items-center gap-3 p-3 rounded-2xl group/ing transition-all border ${isPantry ? 'bg-amber-50/60 border-amber-100' : 'bg-slate-50 border-transparent hover:bg-white hover:border-indigo-100'}`}>
+                              <span className="flex-1 min-w-0 text-sm font-bold leading-tight text-slate-700 select-none">
+                                <span className="text-indigo-600 mr-2">{scaleIngredient(ing.amount, scale)} {ing.unit}</span>
                                 {ing.item}
                               </span>
-                              
-                              <button 
+
+                              <button
+                                onClick={() => toggleIngredientShopping(ing.item)}
+                                title={isPantry ? 'Usually in the pantry, so not added to the shopping list. Tap to add it to lists.' : 'Goes on the shopping list. Tap if you usually have it.'}
+                                className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-black uppercase tracking-wide transition-colors ${isPantry ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-white text-slate-400 border border-slate-200 hover:text-indigo-600 hover:border-indigo-200'}`}
+                              >
+                                {isPantry ? (
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V20h14V9.5" /></svg>
+                                ) : (
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><circle cx="8" cy="21" r="1" /><circle cx="19" cy="21" r="1" /><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" /></svg>
+                                )}
+                                {isPantry ? 'Pantry' : 'On list'}
+                              </button>
+
+                              <button
                                 onClick={() => onAddManualShoppingItem(`${ing.item} (${scaleIngredient(ing.amount, scale)} ${ing.unit})`)}
-                                className="touch-show opacity-0 group-hover/ing:opacity-100 p-2 bg-white text-indigo-600 rounded-xl shadow-sm hover:bg-indigo-600 hover:text-white transition-all ml-4"
-                                title="Add one-time to list"
+                                className="touch-show opacity-0 group-hover/ing:opacity-100 p-2 bg-white text-indigo-600 rounded-xl shadow-sm hover:bg-indigo-600 hover:text-white transition-all shrink-0"
+                                title="Add to this week's list once (even if it's a pantry item)"
                               >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
                               </button>

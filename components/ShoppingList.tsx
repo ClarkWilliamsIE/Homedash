@@ -132,6 +132,15 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
 
   const checkedCount = manualItems.filter(i => i.checked).length + checkedIngredients.length;
 
+  // Pantry items: ingredients you usually have, so they're left off the list.
+  const [showPantry, setShowPantry] = useState(false);
+  const pantry = useMemo(() => [...hiddenIngredients].sort(), [hiddenIngredients]);
+  const addPantryOnce = (name: string) => {
+    if (manualItems.some(i => i.name.toLowerCase() === name.toLowerCase() && !i.checked)) return;
+    onUpdateItems([...manualItems, { id: Date.now().toString(), name: name.charAt(0).toUpperCase() + name.slice(1), checked: false }]);
+  };
+  const stopPantry = (name: string) => onUpdateHidden(hiddenIngredients.filter(i => i !== name));
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-20">
       <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
@@ -210,6 +219,36 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
                </div>
             </section>
           </div>
+
+          {pantry.length > 0 && (
+            <section className="border-t border-slate-100 pt-6">
+              <button onClick={() => setShowPantry(v => !v)} className="w-full flex items-center justify-between">
+                <span className="text-xs font-black uppercase text-amber-600 tracking-widest">Pantry items ({pantry.length})</span>
+                <span className="text-xs font-bold text-slate-400">{showPantry ? 'Hide' : 'Show'}</span>
+              </button>
+              <p className="text-xs text-slate-400 font-medium mt-1">Usually in the cupboard, so recipes don't add them. Running low? Add one to this week's list.</p>
+              {showPantry && (
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {pantry.map(name => {
+                    const added = manualItems.some(i => i.name.toLowerCase() === name && !i.checked);
+                    return (
+                      <div key={name} className="flex items-center gap-2 p-2.5 pl-4 rounded-xl bg-amber-50/60 border border-amber-100">
+                        <span className="flex-1 text-sm font-medium text-slate-700 capitalize truncate">{name}</span>
+                        <button onClick={() => addPantryOnce(name)} disabled={added}
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-indigo-600 border border-indigo-100 hover:bg-indigo-50 disabled:text-emerald-600 disabled:border-emerald-100">
+                          {added ? 'On list' : '+ This week'}
+                        </button>
+                        <button onClick={() => stopPantry(name)} title="Stop treating this as a pantry item"
+                          className="px-2 py-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-slate-700">
+                          Not pantry
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
         </div>
       </div>
     </div>
