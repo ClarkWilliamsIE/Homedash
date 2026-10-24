@@ -1,7 +1,7 @@
 // components/home/music.tsx
 import React from 'react';
 import { HOME } from '../../home.config';
-import { callService, hassAsset, runScript, useEntity } from '../../lib/hass';
+import { callService, hassAsset, runScript, useEntities, useEntity } from '../../lib/hass';
 import { FillSlider } from './controls';
 import { TONE_STYLES, useSettings } from '../../lib/settings';
 import { HomeIcons } from './icons';
@@ -10,16 +10,28 @@ const media = (service: string, entityId: string, data?: Record<string, any>) =>
   callService('media_player', service, data, { entity_id: entityId });
 
 
-/** Album art, title and transport controls for the kitchen & family room group. */
+const PLAYERS = [
+  { entity: HOME.music.group, name: 'kitchen & family room' },
+  ...HOME.music.speakers.map(s => ({ entity: s.entity, name: s.name.toLowerCase() })),
+];
+
+/** Album art, title and controls for whichever of our speakers is playing (the group first). */
 export const NowPlaying: React.FC<{ large?: boolean }> = ({ large }) => {
-  const group = useEntity(HOME.music.group);
-  const playing = group?.state === 'playing';
-  const active = playing || group?.state === 'paused';
-  const art = hassAsset(group?.attributes.entity_picture);
-  const title = active ? group?.attributes.media_title : undefined;
-  const artist = active ? group?.attributes.media_artist : undefined;
-  const vol = Math.round((group?.attributes.volume_level ?? 0) * 100);
+  const states = useEntities(PLAYERS.map(p => p.entity));
+  const groupMembers: string[] = states[0]?.attributes.group_members || [];
+  const pick = (want: string) => PLAYERS.findIndex((p, i) => states[i]?.state === want && !(i > 0 && groupMembers.includes(p.entity) && states[0]?.state === want));
+  let idx = pick('playing');
+  if (idx < 0) idx = pick('paused');
+  const current = idx >= 0 ? states[idx] : states[0];
+  const where = idx >= 0 ? PLAYERS[idx] : PLAYERS[0];
+  const playing = current?.state === 'playing';
+  const active = playing || current?.state === 'paused';
+  const art = hassAsset(current?.attributes.entity_picture);
+  const title = active ? current?.attributes.media_title : undefined;
+  const artist = active ? current?.attributes.media_artist : undefined;
+  const vol = Math.round((current?.attributes.volume_level ?? 0) * 100);
   const size = large ? 'w-40 h-40 rounded-3xl' : 'w-20 h-20 rounded-2xl';
+  const target = where.entity;
 
   return (
     <div className={large ? 'flex gap-8 items-center' : 'flex gap-4 items-center'}>
@@ -27,19 +39,19 @@ export const NowPlaying: React.FC<{ large?: boolean }> = ({ large }) => {
         {art && active ? <img src={art} alt="" className="w-full h-full object-cover" /> : <HomeIcons.Music className={large ? 'w-12 h-12 text-slate-300' : 'w-8 h-8 text-slate-300'} />}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[11px] font-black uppercase tracking-widest text-slate-400 mb-0.5">
-          {playing ? 'Playing in kitchen & family room' : active ? 'Paused' : 'Nothing playing'}
+        <p className="text-[11px] font-black uppercase tracking-widest text-slate-400 mb-0.5 truncate">
+          {playing ? `Playing in ${where.name}` : active ? `Paused in ${where.name}` : 'Nothing playing'}
         </p>
         <p className={`${large ? 'text-3xl' : 'text-lg'} font-black text-slate-900 truncate leading-tight`}>{title || 'Pick a mood below'}</p>
-        <p className={`${large ? 'text-lg' : 'text-sm'} font-semibold text-slate-500 truncate`}>{artist || ' '}</p>
+        <p className={`${large ? 'text-lg' : 'text-sm'} font-semibold text-slate-500 truncate`}>{artist || '\u00a0'}</p>
         <div className={`flex items-center ${large ? 'gap-3 mt-4' : 'gap-2 mt-2'}`}>
-          <button aria-label="Previous" disabled={!active} onClick={() => media('media_previous_track', HOME.music.group)} className="w-10 h-10 rounded-full flex items-center justify-center text-slate-500 hover:bg-slate-100 disabled:opacity-30"><HomeIcons.Prev className="w-5 h-5" /></button>
-          <button aria-label={playing ? 'Pause' : 'Play'} disabled={!active} onClick={() => media('media_play_pause', HOME.music.group)} className={`${large ? 'w-14 h-14' : 'w-11 h-11'} rounded-full flex items-center justify-center bg-slate-900 text-white shadow-lg disabled:opacity-30`}>
+          <button aria-label="Previous" disabled={!active} onClick={() => media('media_previous_track', target)} className="w-10 h-10 rounded-full flex items-center justify-center text-slate-500 hover:bg-slate-100 disabled:opacity-30"><HomeIcons.Prev className="w-5 h-5" /></button>
+          <button aria-label={playing ? 'Pause' : 'Play'} disabled={!active} onClick={() => media('media_play_pause', target)} className={`${large ? 'w-14 h-14' : 'w-11 h-11'} rounded-full flex items-center justify-center bg-slate-900 text-white shadow-lg disabled:opacity-30`}>
             {playing ? <HomeIcons.Pause className="w-5 h-5" /> : <HomeIcons.Play className="w-5 h-5 ml-0.5" />}
           </button>
-          <button aria-label="Next" disabled={!active} onClick={() => media('media_next_track', HOME.music.group)} className="w-10 h-10 rounded-full flex items-center justify-center text-slate-500 hover:bg-slate-100 disabled:opacity-30"><HomeIcons.Next className="w-5 h-5" /></button>
+          <button aria-label="Next" disabled={!active} onClick={() => media('media_next_track', target)} className="w-10 h-10 rounded-full flex items-center justify-center text-slate-500 hover:bg-slate-100 disabled:opacity-30"><HomeIcons.Next className="w-5 h-5" /></button>
           {large && active && (
-            <FillSlider className="h-10 flex-1 ml-4" tone="indigo" value={vol} onCommit={v => media('volume_set', HOME.music.group, { volume_level: v / 100 })} label="Group volume" />
+            <FillSlider className="h-10 flex-1 ml-4" tone="indigo" value={vol} onCommit={v => media('volume_set', target, { volume_level: v / 100 })} label="Volume" />
           )}
         </div>
       </div>
