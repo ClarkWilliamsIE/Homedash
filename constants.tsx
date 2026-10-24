@@ -6,7 +6,8 @@ import React from 'react';
 // CONFIGURATION
 // ==========================================
 export const CLIENT_ID = '858470161036-92e3qomguk6rp8e6pjdkq2el0l4st7a4.apps.googleusercontent.com';
-export const API_KEY = process.env.API_KEY;
+// The Gemini key now lives only on the server (api/importRecipe.ts), so it's no longer shipped to browsers.
+export const API_KEY: string | undefined = undefined;
 
 // REPLACE THIS with the ID of the folder you created in your Business Drive
 // Ensure this folder is SHARED (Editor Access) with every family member who logs in.

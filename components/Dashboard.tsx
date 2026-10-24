@@ -7,8 +7,11 @@ import MediaWidget from './MediaWidget';
 import MealDay from './MealDay';
 import RecipePicker from './RecipePicker';
 import BinNotifier from './BinNotifier';
+import FridgeNotes from './FridgeNotes';
 
 interface DashboardProps {
+  /** Inside Home Assistant: the Home screen already shows weather, music and notes. */
+  compact?: boolean;
   events: CalendarEvent[];
   weeklyPlan: WeeklyPlan;
   recipes: Recipe[];
@@ -23,6 +26,7 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ 
+  compact = false,
   events, 
   weeklyPlan, 
   recipes, 
@@ -37,7 +41,6 @@ const Dashboard: React.FC<DashboardProps> = ({
 }) => {
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [activeDay, setActiveDay] = useState<string | null>(null);
-  const [noteText, setNoteText] = useState('');
 
   const days: DayOfWeek[] = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -57,7 +60,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
       <div className="xl:col-span-3 space-y-8">
-        <WeatherWidget />
+        {!compact && <WeatherWidget />}
 
         <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
@@ -89,6 +92,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
 
+        {!compact && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100">
             <h3 className="text-xl font-bold text-slate-900 mb-6">Today's Agenda</h3>
@@ -122,50 +126,13 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
           <MediaWidget />
         </div>
+        )}
       </div>
 
       <div className="space-y-8 flex flex-col">
         <BinNotifier />
 
-        <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 flex flex-col flex-1 min-h-[500px]">
-          <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
-            <svg className="w-5 h-5 text-amber-500" fill="currentColor" viewBox="0 0 20 20"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" /><path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" /></svg>
-            Fridge Notes
-          </h3>
-          
-          <div className="flex-1 space-y-4 overflow-y-auto pr-1 mb-6">
-            {notes.map(note => (
-              <div key={note.id} className={`${note.color} p-4 rounded-2xl shadow-sm relative group rotate-[-1deg] hover:rotate-0 transition-transform`}>
-                <button onClick={() => onRemoveNote(note.id)} className="absolute top-1 right-2 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
-                <p className="text-sm font-medium text-slate-700 leading-relaxed">{note.text}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-auto">
-            <div className="relative">
-              <input 
-                type="text" 
-                placeholder="Post a note..." 
-                className="w-full bg-slate-50 border-none rounded-2xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
-                value={noteText}
-                onChange={(e) => setNoteText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && noteText.trim()) {
-                    onAddNote(noteText.trim());
-                    setNoteText('');
-                  }
-                }}
-              />
-              <button 
-                onClick={() => { if(noteText.trim()){ onAddNote(noteText.trim()); setNoteText(''); } }}
-                className="absolute right-2 top-2 p-1 text-indigo-600 hover:bg-white rounded-lg transition-colors"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
-              </button>
-            </div>
-          </div>
-        </div>
+        <FridgeNotes notes={notes} onAddNote={onAddNote} onRemoveNote={onRemoveNote} className="flex-1 min-h-[500px]" />
       </div>
 
       {isPickerOpen && (

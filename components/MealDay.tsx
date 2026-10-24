@@ -57,7 +57,7 @@ const MealDay: React.FC<MealDayProps> = ({ day, meals, onAdd, onRemove, onDragDr
 
       <div className="flex-1 flex flex-col gap-2">
         {meals.length === 0 ? (
-          <div className="flex-1 flex items-center justify-center opacity-0 group-hover/day:opacity-100 transition-opacity">
+          <div className="touch-show flex-1 flex items-center justify-center opacity-0 group-hover/day:opacity-100 transition-opacity">
              <button onClick={onAdd} className="text-xs font-bold text-slate-400 hover:text-indigo-600 px-3 py-1 rounded-lg hover:bg-slate-100 transition-colors">
                 Add Meal
              </button>
@@ -78,7 +78,7 @@ const MealDay: React.FC<MealDayProps> = ({ day, meals, onAdd, onRemove, onDragDr
               </div>
               <button 
                 onClick={(e) => { e.stopPropagation(); onRemove(meal.id); }} 
-                className="opacity-0 group-hover:opacity-100 p-1 text-slate-300 hover:text-red-500 transition-opacity"
+                className="touch-show opacity-0 group-hover:opacity-100 p-1 text-slate-300 hover:text-red-500 transition-opacity"
               >
                 ✕
               </button>

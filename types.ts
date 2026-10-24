@@ -52,6 +52,9 @@ export interface CalendarEvent {
 }
 
 export enum View {
+  Home = 'home',
+  Lights = 'lights',
+  Music = 'music',
   Dashboard = 'dashboard',
   Recipes = 'recipes',
   ShoppingList = 'shopping-list',

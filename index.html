@@ -10,6 +10,8 @@
   <style>
     body { font-family: 'Inter', sans-serif; }
     .glass { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(8px); }
+    /* Touch screens can't hover, so show the hover-only buttons */
+    @media (hover: none) { .touch-show { opacity: 1 !important; } }
   </style>
 <script type="importmap">
 {
