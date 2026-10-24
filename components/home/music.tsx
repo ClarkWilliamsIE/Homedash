@@ -50,9 +50,8 @@ export const NowPlaying: React.FC<{ large?: boolean }> = ({ large }) => {
             {playing ? <HomeIcons.Pause className="w-5 h-5" /> : <HomeIcons.Play className="w-5 h-5 ml-0.5" />}
           </button>
           <button aria-label="Next" disabled={!active} onClick={() => media('media_next_track', target)} className="w-10 h-10 rounded-full flex items-center justify-center text-slate-500 hover:bg-slate-100 disabled:opacity-30"><HomeIcons.Next className="w-5 h-5" /></button>
-          {large && active && (
-            <FillSlider className="h-10 flex-1 ml-4" tone="indigo" value={vol} onCommit={v => media('volume_set', target, { volume_level: v / 100 })} label="Volume" />
-          )}
+          <ShuffleButton entityId={target} />
+          {large && <div className="flex-1 ml-4 min-w-0"><MasterVolume /></div>}
         </div>
       </div>
     </div>
@@ -99,5 +98,63 @@ export const SpeakerRow: React.FC<{ entityId: string; name: string }> = ({ entit
         {muted ? <HomeIcons.Mute className="w-5 h-5" /> : <HomeIcons.Volume className="w-5 h-5" />}
       </button>
     </div>
+  );
+};
+
+/** One slider for every speaker that's playing. It keeps the mood's balance (kitchen louder than
+ *  the stereo, say) and turns them all up or down together. */
+export const MasterVolume: React.FC = () => {
+  const speakers = HOME.music.speakers;
+  const states = useEntities(speakers.map(s => s.entity));
+  const live = speakers.filter((s, i) => ['playing', 'paused'].includes(states[i]?.state || ''));
+  const targets = (live.length ? live : speakers.filter((s, i) => states[i] && states[i]!.state !== 'unavailable'));
+  const vols = targets.map(t => states[speakers.indexOf(t)]?.attributes.volume_level ?? 0);
+  const top = Math.max(0, ...vols);
+  const allMuted = targets.length > 0 && targets.every(t => !!states[speakers.indexOf(t)]?.attributes.is_volume_muted);
+
+  const setAll = (pct: number) => {
+    const v = pct / 100;
+    targets.forEach((t, i) => {
+      const level = top > 0.005 ? Math.min(1, (vols[i] / top) * v) : v;
+      media('volume_set', t.entity, { volume_level: Math.round(level * 100) / 100 });
+    });
+  };
+
+  if (!targets.length) return null;
+  return (
+    <div className="flex items-center gap-2">
+      <FillSlider
+        className="h-11 flex-1"
+        tone="indigo"
+        value={allMuted ? 0 : Math.round(top * 100)}
+        onCommit={setAll}
+        label="Master volume"
+      />
+      <button
+        aria-label={allMuted ? 'Unmute all' : 'Mute all'}
+        onClick={() => targets.forEach(t => media('volume_mute', t.entity, { is_volume_muted: !allMuted }))}
+        className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${allMuted ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500'}`}
+      >
+        {allMuted ? <HomeIcons.Mute className="w-5 h-5" /> : <HomeIcons.Volume className="w-5 h-5" />}
+      </button>
+    </div>
+  );
+};
+
+/** Turn shuffle on or off for whatever is playing. */
+export const ShuffleButton: React.FC<{ entityId: string; className?: string }> = ({ entityId, className = '' }) => {
+  const e = useEntity(entityId);
+  const on = !!e?.attributes.shuffle;
+  const active = e?.state === 'playing' || e?.state === 'paused';
+  return (
+    <button
+      aria-label={on ? 'Shuffle on' : 'Shuffle off'}
+      aria-pressed={on}
+      disabled={!active}
+      onClick={() => media('shuffle_set', entityId, { shuffle: !on })}
+      className={`w-10 h-10 rounded-full flex items-center justify-center disabled:opacity-30 ${on ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100'} ${className}`}
+    >
+      <HomeIcons.Shuffle className="w-5 h-5" />
+    </button>
   );
 };

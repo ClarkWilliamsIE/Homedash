@@ -57,7 +57,7 @@ const moodSummary = (m: Mood) => {
     const v = m.volumes[s.entity];
     return v === null || v === undefined ? null : `${s.name} ${Math.round(v)}%`;
   }).filter(Boolean).join(' · ') || 'No speakers';
-  const music = m.music.mode === 'none' || !m.music.mediaId ? 'volumes only' : `${m.music.label || 'music'}${m.music.mode === 'always' ? ' (always)' : ''}`;
+  const music = m.music.mode === 'none' || !m.music.mediaId ? 'volumes only' : `${m.music.label || 'music'}${m.music.shuffle ? ', shuffled' : ''}${m.music.mode === 'always' ? ' (always)' : ''}`;
   return `${speakers} · ${music}`;
 };
 
@@ -190,6 +190,15 @@ const MoodEditor: React.FC<{
                   </optgroup>
                 ))}
               </select>
+            )}
+            {draft.music.mode !== 'none' && (
+              <div onClick={() => setMusic({ shuffle: !draft.music.shuffle })} className="mt-3 flex items-center justify-between gap-3 p-4 rounded-2xl bg-slate-100 cursor-pointer">
+                <span>
+                  <span className="block font-semibold text-slate-800">Shuffle</span>
+                  <span className="block text-sm text-slate-500">Play the songs in a random order each time</span>
+                </span>
+                <Switch on={!!draft.music.shuffle} tone="indigo" label="Shuffle" onToggle={() => setMusic({ shuffle: !draft.music.shuffle })} />
+              </div>
             )}
           </div>
 

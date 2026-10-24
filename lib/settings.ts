@@ -15,6 +15,8 @@ export interface MoodMusic {
   mediaId?: string;
   mediaType?: 'playlist' | 'radio' | 'album' | 'track' | 'artist' | 'podcast';
   label?: string;
+  /** Play the playlist in random order. */
+  shuffle?: boolean;
 }
 
 export interface Mood {
@@ -166,11 +168,15 @@ export function moodToScript(mood: Mood) {
   // 3. What plays
   const m = mood.music;
   if (m.mode !== 'none' && m.mediaId) {
-    const play = step('music_assistant.play_media', playTarget, { media_id: m.mediaId, media_type: m.mediaType || 'playlist', enqueue: 'replace' });
-    if (m.mode === 'always') sequence.push(play);
+    const play = [
+      // Shuffle (or not) before loading the music, so the new queue starts in the right order.
+      step('media_player.shuffle_set', playTarget, { shuffle: !!m.shuffle }),
+      step('music_assistant.play_media', playTarget, { media_id: m.mediaId, media_type: m.mediaType || 'playlist', enqueue: 'replace' }),
+    ];
+    if (m.mode === 'always') sequence.push(...play);
     else sequence.push({
       if: [{ condition: 'template', value_template: `{{ not is_state('${playTarget}', 'playing') }}` }],
-      then: [play],
+      then: play,
     });
   }
 
