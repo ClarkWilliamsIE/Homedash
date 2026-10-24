@@ -84,3 +84,24 @@ The same app also runs **inside Home Assistant**, where it adds a Home screen (t
 * *Full screen*: Settings → This device hides Home Assistant's top bar and side menu on that device only (remembered in that browser).
 
 **Browse music** (Music screen): search Spotify and your Music Assistant library (playlists, recently played, albums, artists, radio) and play on any speaker or the kitchen & family room group, or add to the queue. Uses Music Assistant's `search` / `get_library` services, so it works on non-admin logins too.
+
+## Alexa: add to the shopping list by voice
+
+"Alexa, ask Homedash to add milk and bread" (or "Alexa, ask Homedash what's on the list") works on any
+Alexa speaker on your Amazon account, including the Sonos. It's a private skill that only your account can use.
+
+1. Sign in at developer.amazon.com/alexa/console/ask with the Amazon account your Alexa uses.
+2. Create skill → name "Homedash", locale English (NZ) (also add English (AU/US) if your speakers use them),
+   model "Custom", hosting "Provision your own", template "Start from scratch".
+3. Build → JSON Editor: paste `alexa/interaction-model.json`, Save, Build skill.
+4. Build → Endpoint: HTTPS, default region `https://<your-vercel-site>/api/alexa`, certificate
+   "My development endpoint is a sub-domain of a domain that has a wildcard certificate". Save.
+5. Copy the Skill ID (amzn1.ask.skill.…) and add it in Vercel as the environment variable `ALEXA_SKILL_ID`, then redeploy.
+6. Test tab → set "Skill testing is enabled in" to Development. It now works on your speakers.
+
+## Siri: "Hey Siri, add to Homedash"
+
+`api/addItem` adds to the shopping list (POST JSON `{ "pin": "<family PIN>", "text": "milk and bread" }`).
+On each iPhone, make a Shortcut called "Add to Homedash": Dictate Text → Get Contents of URL
+(`https://<your-vercel-site>/api/addItem`, Method POST, Request Body JSON: `pin` = your PIN, `text` = Dictated Text)
+→ Get Dictionary Value `message` → Speak Text.
