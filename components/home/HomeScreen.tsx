@@ -18,7 +18,7 @@ import RecipePicker from '../RecipePicker';
 import { AddItemBar, MealPhoto, Btn, Icon, Panel } from '../ui';
 import { LightRow, MoreLink } from './controls';
 import { HomeIcons } from './icons';
-import { MasterVolume, NowPlaying, ProfileGrid } from './music';
+import { MasterVolume, NowPlaying, ProfileGrid, SpeakerMixer } from './music';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -287,6 +287,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
           <Panel title="Music" action={<MoreLink onClick={() => onNavigate(View.Music)}>Browse</MoreLink>}>
             <NowPlaying />
             <div className="mt-4"><MasterVolume /></div>
+            <div className="mt-4 pt-4 border-t border-slate-100"><SpeakerMixer compact /></div>
             <div className="mt-4"><ProfileGrid /></div>
           </Panel>
           <LightsCard onMore={() => onNavigate(View.Lights)} />

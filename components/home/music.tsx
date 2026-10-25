@@ -2,7 +2,7 @@
 import React from 'react';
 import { HOME } from '../../home.config';
 import { callService, hassAsset, runScript, useEntities, useEntity } from '../../lib/hass';
-import { FillSlider } from './controls';
+import { FillSlider, Switch } from './controls';
 import { TONE_STYLES, useSettings } from '../../lib/settings';
 import { HomeIcons } from './icons';
 
@@ -156,5 +156,63 @@ export const ShuffleButton: React.FC<{ entityId: string; className?: string }> =
     >
       <HomeIcons.Shuffle className="w-5 h-5" />
     </button>
+  );
+};
+
+const SYNC_GROUP_MEMBERS = ['media_player.kitchen', 'media_player.family_room', 'media_player.living_room_3'];
+
+/** Every speaker with an on/off switch (in or out of the music) and its own volume.
+ *  On joins it to whatever is playing; off takes it out (and stops it if it was playing on its own). */
+export const SpeakerMixer: React.FC<{ compact?: boolean }> = ({ compact }) => {
+  const speakers = HOME.music.speakers;
+  const group = useEntity(HOME.music.group);
+  const states = useEntities(speakers.map(s => s.entity));
+  const isOn = (i: number) => ['playing', 'paused'].includes(states[i]?.state || '');
+
+  // What a speaker should join: the group if it's going, otherwise any speaker that's playing.
+  const leader = () => {
+    if (group && ['playing', 'paused'].includes(group.state)) return HOME.music.group;
+    const i = speakers.findIndex((_, k) => states[k]?.state === 'playing');
+    return i >= 0 ? speakers[i].entity : HOME.music.group;
+  };
+
+  const toggle = (i: number) => {
+    const id = speakers[i].entity;
+    if (isOn(i)) {
+      callService('media_player', 'unjoin', undefined, { entity_id: id });
+      if (!SYNC_GROUP_MEMBERS.includes(id) || !(group?.attributes.group_members || []).includes(id)) {
+        callService('media_player', 'media_pause', undefined, { entity_id: id });
+      }
+    } else {
+      const lead = leader();
+      if (lead !== id) callService('media_player', 'join', { group_members: [id] }, { entity_id: lead });
+    }
+  };
+
+  return (
+    <ul className={compact ? 'space-y-1.5' : 'space-y-2.5'}>
+      {speakers.map((sp, i) => {
+        const e = states[i];
+        const offline = !e || e.state === 'unavailable';
+        const on = isOn(i);
+        const muted = !!e?.attributes.is_volume_muted;
+        const vol = Math.round((e?.attributes.volume_level ?? 0) * 100);
+        return (
+          <li key={sp.entity} className={`flex items-center gap-3 ${compact ? '' : 'p-3 rounded-2xl bg-slate-50'} ${offline ? 'opacity-40' : ''}`}>
+            <Switch on={on} tone="indigo" label={`${sp.name} on or off`} onToggle={() => { if (!offline) toggle(i); }} />
+            <span className={`shrink-0 ${compact ? 'w-24 text-sm' : 'w-28'} font-semibold truncate ${on ? 'text-slate-900' : 'text-slate-500'}`}>{sp.name}</span>
+            <FillSlider
+              className={`${compact ? 'h-9' : 'h-10'} flex-1`}
+              tone="indigo"
+              disabled={offline}
+              value={muted ? 0 : vol}
+              onCommit={v => media('volume_set', sp.entity, { volume_level: v / 100 })}
+              label=""
+            />
+            <span className="w-9 text-right text-sm tabular-nums text-slate-500">{muted ? 'Mute' : vol}</span>
+          </li>
+        );
+      })}
+    </ul>
   );
 };
