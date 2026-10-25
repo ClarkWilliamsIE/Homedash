@@ -360,6 +360,7 @@ const RecipeForm: React.FC<{
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(initial.imageUrl || null);
   const [paste, setPaste] = useState<null | 'ingredients' | 'method'>(null);
+  const [showImport, setShowImport] = useState(false);
   const [pasteText, setPasteText] = useState('');
   const set = (patch: Partial<FormState>) => setF(prev => ({ ...prev, ...patch }));
 
@@ -376,14 +377,16 @@ const RecipeForm: React.FC<{
       });
       if (!res.ok) throw new Error(`Import failed (${res.status})`);
       const data = await res.json();
+      if (data.imageUrl) setFile(null);
       set({
-        name: data.name || '',
+        name: data.name || f.name || '',
         ingredients: data.ingredients?.length ? data.ingredients : [{ amount: '', unit: '', item: '' }],
         instructions: data.instructions?.length ? data.instructions : [{ text: '', isHeader: false }],
-        tags: data.tags || '',
-        imageUrl: data.imageUrl || '',
+        tags: data.tags || f.tags || '',
+        imageUrl: data.imageUrl || f.imageUrl || '',
       });
-      setPreview(data.imageUrl || null);
+      if (data.imageUrl) setPreview(data.imageUrl);
+      setShowImport(false);
       setImportUrl('');
     } catch {
       setImportError(navigator.onLine ? "Couldn't read a recipe from that link. Check it opens in a browser, or type the recipe in below." : 'Importing needs a connection.');
@@ -438,10 +441,18 @@ const RecipeForm: React.FC<{
         </div>
       }
     >
-      {!editing && (
+      {editing && !showImport ? (
+        <button type="button" onClick={() => setShowImport(true)} className="mb-5 text-sm font-semibold text-indigo-700">
+          Re-import this recipe from a website…
+        </button>
+      ) : (
         <div className="rounded-3xl bg-indigo-50 p-4 mb-6">
-          <p className="font-semibold text-slate-800">Import from a website</p>
-          <p className="text-sm text-slate-600 mb-3">Paste a link and Homedash fills in the recipe for you to check.</p>
+          <p className="font-semibold text-slate-800">{editing ? 'Re-import from a website' : 'Import from a website'}</p>
+          <p className="text-sm text-slate-600 mb-3">
+            {editing
+              ? 'Paste a link to replace the name, ingredients, method, tags and photo. Favourite and "not tried yet" stay as they are. Nothing is saved until you tap Save changes.'
+              : 'Paste a link and Homedash fills in the recipe for you to check.'}
+          </p>
           <div className="flex gap-2">
             <input type="url" inputMode="url" placeholder="https://…" className={`${field} !bg-white`} value={importUrl} onChange={e => setImportUrl(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); runImport(); } }} />
             <Btn type="button" size="lg" className="!h-12" onClick={() => runImport()} disabled={importing || !importUrl.trim()}>{importing ? 'Importing…' : 'Import'}</Btn>
