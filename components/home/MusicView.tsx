@@ -4,13 +4,14 @@ import { HOME } from '../../home.config';
 import { runScript } from '../../lib/hass';
 import { Card } from './controls';
 import { HomeIcons } from './icons';
-import { NowPlaying, ProfileGrid, SpeakerMixer } from './music';
+import { AlsoPlaying, NowPlaying, ProfileGrid, SpeakerMixer } from './music';
 import MusicBrowser from './MusicBrowser';
 
 const MusicView: React.FC = () => (
   <div className="space-y-6 max-w-6xl">
     <Card className="!p-8">
       <NowPlaying large />
+      <div className="mt-6 empty:hidden"><AlsoPlaying /></div>
     </Card>
 
     <Card title="Moods">

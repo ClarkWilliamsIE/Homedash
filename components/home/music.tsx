@@ -16,12 +16,18 @@ const PLAYERS = [
 ];
 
 /** Album art, title and controls for whichever of our speakers is playing (the group first). */
-export const NowPlaying: React.FC<{ large?: boolean }> = ({ large }) => {
+/** Which player the big "Now playing" shows: the group first, then any speaker that's playing. */
+const useMainPlayer = () => {
   const states = useEntities(PLAYERS.map(p => p.entity));
   const groupMembers: string[] = states[0]?.attributes.group_members || [];
   const pick = (want: string) => PLAYERS.findIndex((p, i) => states[i]?.state === want && !(i > 0 && groupMembers.includes(p.entity) && states[0]?.state === want));
   let idx = pick('playing');
   if (idx < 0) idx = pick('paused');
+  return { states, idx, groupMembers };
+};
+
+export const NowPlaying: React.FC<{ large?: boolean }> = ({ large }) => {
+  const { states, idx } = useMainPlayer();
   const current = idx >= 0 ? states[idx] : states[0];
   const where = idx >= 0 ? PLAYERS[idx] : PLAYERS[0];
   const playing = current?.state === 'playing';
@@ -106,7 +112,10 @@ export const SpeakerRow: React.FC<{ entityId: string; name: string }> = ({ entit
 export const MasterVolume: React.FC = () => {
   const speakers = HOME.music.speakers;
   const states = useEntities(speakers.map(s => s.entity));
-  const live = speakers.filter((s, i) => ['playing', 'paused'].includes(states[i]?.state || ''));
+  // Only the speakers playing the main music (not, say, Lilly's story in another room).
+  const { states: all, idx } = useMainPlayer();
+  const mainTitle = idx >= 0 ? all[idx]?.attributes.media_title : undefined;
+  const live = speakers.filter((s, i) => ['playing', 'paused'].includes(states[i]?.state || '') && (!mainTitle || states[i]?.attributes.media_title === mainTitle));
   const targets = (live.length ? live : speakers.filter((s, i) => states[i] && states[i]!.state !== 'unavailable'));
   const vols = targets.map(t => states[speakers.indexOf(t)]?.attributes.volume_level ?? 0);
   const top = Math.max(0, ...vols);
@@ -214,5 +223,47 @@ export const SpeakerMixer: React.FC<{ compact?: boolean }> = ({ compact }) => {
         );
       })}
     </ul>
+  );
+};
+
+/** Speakers playing something different from the main "Now playing" (Lilly's story in the
+ *  family room while the kitchen has music, say). Shows nothing when everything matches. */
+export const AlsoPlaying: React.FC<{ compact?: boolean }> = ({ compact }) => {
+  const { states, idx, groupMembers } = useMainPlayer();
+  const main = idx >= 0 ? states[idx] : undefined;
+  const mainEntity = idx >= 0 ? PLAYERS[idx].entity : undefined;
+  const others = PLAYERS.map((p, i) => ({ p, e: states[i] })).filter(({ p, e }, i) => {
+    if (i === idx || !e || !['playing', 'paused'].includes(e.state)) return false;
+    if (mainEntity === HOME.music.group && groupMembers.includes(p.entity)) return false; // part of the main group
+    if (i === 0 && idx > 0 && groupMembers.includes(PLAYERS[idx].entity)) return false;
+    return !main || e.attributes.media_title !== main.attributes.media_title || e.attributes.media_artist !== main.attributes.media_artist;
+  });
+  if (!others.length) return null;
+  return (
+    <div className={compact ? 'mt-4 pt-4 border-t border-slate-100' : ''}>
+      <p className={`font-semibold text-slate-700 ${compact ? 'text-sm mb-2' : 'mb-3'}`}>Also playing</p>
+      <ul className="space-y-2">
+        {others.map(({ p, e }) => {
+          const playing = e!.state === 'playing';
+          const art = hassAsset(e!.attributes.entity_picture);
+          return (
+            <li key={p.entity} className="flex items-center gap-3 p-2 rounded-2xl bg-slate-50">
+              <span className={`${compact ? 'w-11 h-11' : 'w-14 h-14'} rounded-xl overflow-hidden bg-slate-200 flex items-center justify-center shrink-0`}>
+                {art ? <img src={art} alt="" className="w-full h-full object-cover" /> : <HomeIcons.Music className="w-5 h-5 text-slate-400" />}
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm text-slate-500 truncate">{playing ? 'Playing' : 'Paused'} in {p.name}</span>
+                <span className="block font-semibold text-slate-900 truncate">{e!.attributes.media_title || 'Something'}</span>
+                {!compact && e!.attributes.media_artist && <span className="block text-sm text-slate-500 truncate">{e!.attributes.media_artist}</span>}
+              </span>
+              <button aria-label={playing ? `Pause ${p.name}` : `Play ${p.name}`} onClick={() => media('media_play_pause', p.entity)}
+                className="w-10 h-10 rounded-full bg-indigo-700 text-white flex items-center justify-center shrink-0">
+                {playing ? <HomeIcons.Pause className="w-4 h-4" /> : <HomeIcons.Play className="w-4 h-4 ml-0.5" />}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 };
