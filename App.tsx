@@ -128,6 +128,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   const [hiddenIngredients, setHiddenIngredients] = useState<string[]>(cached?.state.hiddenIngredients || []);
   const [clearedIngredients, setClearedIngredients] = useState<string[]>(cached?.state.clearedIngredients || []);
   const [checkedIngredients, setCheckedIngredients] = useState<string[]>(cached?.state.checkedIngredients || []);
+  const [pantryHidden, setPantryHidden] = useState<string[]>(cached?.state.pantryHidden || []);
   const [settings, setSettings] = useState<HomeSettings | null>(cached?.state.settings ?? null);
 
   // Everything the "add an item" boxes can suggest.
@@ -166,7 +167,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   const lastSynced = useRef<SyncState | null>(cached?.base || null);
   const lastSyncedStr = useRef(cached?.base ? JSON.stringify(cached.base) : '');
   const isSaving = useRef(false);
-  const currentState = (): SyncState => pack({ weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, settings });
+  const currentState = (): SyncState => pack({ weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, pantryHidden, settings });
   const stateRef = useRef<SyncState>(currentState());
   stateRef.current = currentState();
   const recipesRef = useRef(recipes);
@@ -179,6 +180,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
     setHiddenIngredients(s.hiddenIngredients);
     setClearedIngredients(s.clearedIngredients);
     setCheckedIngredients(s.checkedIngredients);
+    setPantryHidden(s.pantryHidden);
     setSettings(s.settings);
   };
 
@@ -190,7 +192,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   // Keep the offline copy up to date.
   useEffect(() => {
     writeCache({ recipes, state: stateRef.current, base: lastSynced.current });
-  }, [recipes, weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, settings, isSyncing]);
+  }, [recipes, weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, pantryHidden, settings, isSyncing]);
 
   // SILENT LOGIN: sends the PIN to the backend to get the token
   const loginSilently = useCallback(async (pinToTry?: string) => {
@@ -377,7 +379,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
     saveTimeout.current = setTimeout(() => saveNow(), 1500);
     return () => clearTimeout(saveTimeout.current);
-  }, [weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, settings, auth.token, isTokenExpired, saveNow]);
+  }, [weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, pantryHidden, settings, auth.token, isTokenExpired, saveNow]);
 
   // Back online: sign in if we couldn't before, and send anything ticked while offline.
   useEffect(() => {
@@ -746,6 +748,8 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
           onUpdateCleared={setClearedIngredients}
           checkedIngredients={checkedIngredients}
           onUpdateChecked={setCheckedIngredients}
+          pantryHidden={pantryHidden}
+          onUpdatePantryHidden={setPantryHidden}
         />
       )}
     </>

@@ -21,6 +21,8 @@ export interface SyncState {
   hiddenIngredients: string[];
   clearedIngredients: string[];
   checkedIngredients: string[];
+  /** Pantry items tidied out of the pantry list (still kept off the shopping list). */
+  pantryHidden: string[];
   /** Settings screen (music moods, rooms, Start cooking). null until someone changes a setting. */
   settings: HomeSettings | null;
 }
@@ -35,6 +37,7 @@ export const pack = (s: Partial<SyncState>): SyncState => ({
   hiddenIngredients: s.hiddenIngredients || [],
   clearedIngredients: s.clearedIngredients || [],
   checkedIngredients: s.checkedIngredients || [],
+  pantryHidden: s.pantryHidden || [],
   settings: s.settings ?? null,
 });
 
@@ -80,6 +83,7 @@ export function mergeState(baseIn: SyncState, localIn: SyncState, remoteIn: Sync
     hiddenIngredients: mergeList(base.hiddenIngredients, local.hiddenIngredients, remote.hiddenIngredients, self),
     clearedIngredients: mergeList(base.clearedIngredients, local.clearedIngredients, remote.clearedIngredients, self),
     checkedIngredients: mergeList(base.checkedIngredients, local.checkedIngredients, remote.checkedIngredients, self),
+    pantryHidden: mergeList(base.pantryHidden, local.pantryHidden, remote.pantryHidden, self),
     // Settings are saved as a whole: if this device changed them, its version wins.
     settings: same(local.settings, base.settings) ? remote.settings : local.settings,
   });

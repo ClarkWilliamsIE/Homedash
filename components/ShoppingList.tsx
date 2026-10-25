@@ -19,6 +19,8 @@ interface ShoppingListProps {
   onUpdateCleared: (items: string[]) => void;
   checkedIngredients: string[];
   onUpdateChecked: (items: string[]) => void;
+  pantryHidden: string[];
+  onUpdatePantryHidden: (items: string[]) => void;
 }
 
 // --- Aisles ---
@@ -119,7 +121,9 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
   clearedIngredients,
   onUpdateCleared,
   checkedIngredients,
-  onUpdateChecked
+  onUpdateChecked,
+  pantryHidden,
+  onUpdatePantryHidden,
 }) => {
   const [showTrolley, setShowTrolley] = useState(false);
   const [showPantry, setShowPantry] = useState(false);
@@ -208,15 +212,21 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
   };
 
   // Pantry items: ingredients you usually have, so recipes don't add them.
-  const pantry = useMemo(() => [...hiddenIngredients].sort(), [hiddenIngredients]);
+  // Pantry items: ingredients you usually have, so recipes don't add them. Items tidied out of this
+  // list (duplicates, odd spellings) stay off the shopping list and keep their Pantry label on recipes.
+  const pantry = useMemo(() => hiddenIngredients.filter(i => !pantryHidden.includes(i)).sort(), [hiddenIngredients, pantryHidden]);
+  const tidied = useMemo(() => hiddenIngredients.filter(i => pantryHidden.includes(i)).sort(), [hiddenIngredients, pantryHidden]);
+  const [showTidied, setShowTidied] = useState(false);
+  const tidyAway = (name: string) => onUpdatePantryHidden([...pantryHidden.filter(i => i !== name), name]);
+  const putBack = (name: string) => onUpdatePantryHidden(pantryHidden.filter(i => i !== name));
   const addPantryOnce = (name: string) => {
     if (manualItems.some(i => i.name.toLowerCase() === name.toLowerCase() && !i.checked)) return;
     onUpdateItems([...manualItems, { id: Date.now().toString(), name: cap(name), checked: false }]);
   };
-  const removePantry = (name: string) => onUpdateHidden(hiddenIngredients.filter(i => i !== name));
   const addPantry = (name: string) => {
     const clean = name.toLowerCase().trim();
     if (clean && !hiddenIngredients.includes(clean)) onUpdateHidden([...hiddenIngredients, clean]);
+    if (pantryHidden.includes(clean)) putBack(clean);
   };
   const [editPantry, setEditPantry] = useState(false);
 
@@ -285,7 +295,7 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
                   <li key={name} className="flex items-center gap-2 pl-3 pr-1 py-1.5">
                     <span className="flex-1 text-[15px] text-slate-800 truncate">{cap(name)}</span>
                     {editPantry ? (
-                      <button onClick={() => removePantry(name)} className="h-9 px-3 rounded-xl text-sm font-semibold text-rose-700 hover:bg-rose-50">Remove</button>
+                      <button onClick={() => tidyAway(name)} className="h-9 px-3 rounded-xl text-sm font-semibold text-rose-700 hover:bg-rose-50">Remove</button>
                     ) : (
                       <button onClick={() => addPantryOnce(name)} disabled={added}
                         className="h-9 px-3 rounded-xl text-sm font-semibold bg-white text-indigo-700 border border-slate-200 disabled:text-slate-500 disabled:bg-transparent disabled:border-transparent">
@@ -303,6 +313,25 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
                   {editPantry ? 'Done' : 'Remove items…'}
                 </button>
               </div>
+              {editPantry && <p className="text-sm text-slate-500 px-2">Removing only tidies this list: the item still stays off the shopping list, and recipes still show it as Pantry.</p>}
+              {tidied.length > 0 && (
+                <div className="mt-3 border-t border-amber-200/70 pt-2">
+                  <button onClick={() => setShowTidied(v => !v)} className="w-full flex items-center justify-between px-2 py-1.5 text-sm font-semibold text-slate-500">
+                    <span>Removed from this list ({tidied.length})</span>
+                    <span className="text-indigo-700">{showTidied ? 'Hide' : 'Show'}</span>
+                  </button>
+                  {showTidied && (
+                    <ul className="grid grid-cols-1 md:grid-cols-2 gap-x-2">
+                      {tidied.map(name => (
+                        <li key={name} className="flex items-center gap-2 pl-3 pr-1 py-1">
+                          <span className="flex-1 text-[15px] text-slate-500 truncate">{cap(name)}</span>
+                          <button onClick={() => putBack(name)} className="h-9 px-3 rounded-xl text-sm font-semibold text-indigo-700 hover:bg-white">Put back</button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
