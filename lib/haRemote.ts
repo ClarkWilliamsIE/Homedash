@@ -24,6 +24,7 @@ const pending = new Map<number, { resolve: (v: any) => void; reject: (e: any) =>
 let states: Record<string, HassEntity> = {};
 let user: any = null;
 let publishTimer: any = null;
+let heartbeat: any = null;
 
 const publish = () => {
   if (publishTimer) return;
@@ -84,8 +85,9 @@ function connect() {
   setStatus(status === 'connected' ? 'connected' : 'connecting');
   const socket = new WebSocket(`${creds.url.replace(/^http/, 'ws')}/api/websocket`);
   ws = socket;
-  // Not reachable (no Tailscale, no signal): give up quickly rather than hang.
-  const openTimer = setTimeout(() => { if (socket.readyState !== WebSocket.OPEN) socket.close(); }, 8000);
+  // Not reachable (no Tailscale, no signal): give up rather than hang. Mobile data goes through
+  // Tailscale's relays, which can be slow to set up, so allow a bit longer than on Wi-Fi.
+  const openTimer = setTimeout(() => { if (socket.readyState !== WebSocket.OPEN || status !== 'connected') socket.close(); }, 15000);
 
   socket.onmessage = async ev => {
     const msg = JSON.parse(ev.data);
@@ -101,6 +103,14 @@ function connect() {
         await send({ type: 'subscribe_events', event_type: 'state_changed' });
         setStatus('connected');
         hassStore.set(makeHass());
+        // Switching between Wi-Fi and mobile data can leave a socket that looks open but is dead.
+        // Ping every 20s; no answer within 10s means start again.
+        clearInterval(heartbeat);
+        heartbeat = setInterval(() => {
+          if (ws !== socket) { clearInterval(heartbeat); return; }
+          Promise.race([send({ type: 'ping' }), new Promise((_, r) => setTimeout(() => r(new Error('no pong')), 10000))])
+            .catch(() => { if (ws === socket) socket.close(); });
+        }, 20000);
       } catch (err) { console.error('Homedash: Home Assistant setup failed', err); socket.close(); }
       return;
     }
@@ -111,6 +121,7 @@ function connect() {
       publish();
       return;
     }
+    if (msg.type === 'pong' && pending.has(msg.id)) { const p = pending.get(msg.id)!; pending.delete(msg.id); p.resolve(true); return; }
     if (msg.type === 'result' && pending.has(msg.id)) {
       const p = pending.get(msg.id)!;
       pending.delete(msg.id);
@@ -121,6 +132,7 @@ function connect() {
 
   socket.onclose = () => {
     clearTimeout(openTimer);
+    if (ws === socket) clearInterval(heartbeat);
     if (ws === socket) ws = null;
     failAll('Lost the connection to Home Assistant');
     if (status === 'connected' || status === 'connecting') hassStore.set(null);
@@ -153,5 +165,10 @@ export const stopRemoteHass = () => {
 
 /** Try again straight away (coming back to the app, or back online). */
 export const nudgeRemoteHass = () => {
-  if (creds && status !== 'connected') { retryDelay = 5000; clearTimeout(retryTimer); connect(); }
+  if (!creds) return;
+  if (status !== 'connected') { retryDelay = 5000; clearTimeout(retryTimer); connect(); return; }
+  // Looks connected, but the network may have just changed: check it answers.
+  const socket = ws;
+  Promise.race([send({ type: 'ping' }), new Promise((_, r) => setTimeout(() => r(new Error('no pong')), 5000))])
+    .catch(() => { if (socket && ws === socket) socket.close(); });
 };

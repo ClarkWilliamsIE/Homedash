@@ -23,6 +23,7 @@ import { pack, mergeState, SyncState, ManualItem as SyncManualItem } from './lib
 import { HomeSettings, settingsStore, withDefaults } from './lib/settings';
 import { recordItem, setItemCatalog } from './lib/items';
 import { nudgeRemoteHass, startRemoteHass } from './lib/haRemote';
+import { stampMeal, tidyPlan, isoDay } from './lib/weekDates';
 
 const INITIAL_PLAN: WeeklyPlan = {
   Sunday: [], Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: []
@@ -589,15 +590,29 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
     navigate(View.Recipes);
   };
 
-  const addMeal = (d: string, r: Recipe) => setWeeklyPlan(p => ({ ...p, [d]: [...(p[d] || []), r] }));
+  const addMeal = (d: string, r: Recipe) => setWeeklyPlan(p => ({ ...p, [d]: [...(p[d] || []), stampMeal(d, r)] }));
   const removeMeal = (d: string, id: string) => setWeeklyPlan(p => ({ ...p, [d]: p[d].filter(r => r.id !== id) }));
-  const updateMeal = (d: string, meal: Recipe) => setWeeklyPlan(p => ({ ...p, [d]: p[d].map(r => r.id === meal.id ? meal : r) }));
+  const updateMeal = (d: string, meal: Recipe) => setWeeklyPlan(p => ({ ...p, [d]: p[d].map(r => r.id === meal.id ? { ...meal, plannedFor: r.plannedFor } : r) }));
   const moveMeal = (s: string, t: string, id: string) => setWeeklyPlan(p => {
     const next = { ...p };
     const move = next[s].find(r => r.id === id);
-    if (move) { next[s] = next[s].filter(r => r.id !== id); next[t] = [...next[t], move]; }
+    if (move) { next[s] = next[s].filter(r => r.id !== id); next[t] = [...next[t], stampMeal(t, move)]; }
     return next;
   });
+
+  // Meals come off the plan once their day has been, so the week view (which always starts
+  // today) never shows last Sunday's dinner as next Sunday's. Checked again when the date
+  // ticks over, for the kitchen iPad that stays open overnight.
+  const [todayKey, setTodayKey] = useState(() => isoDay(new Date()));
+  useEffect(() => {
+    const tick = () => setTodayKey(isoDay(new Date()));
+    const t = setInterval(tick, 60_000);
+    document.addEventListener('visibilitychange', tick);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', tick); };
+  }, []);
+  useEffect(() => {
+    setWeeklyPlan(p => tidyPlan(p));
+  }, [weeklyPlan, todayKey]);
   const addNote = (text: string) => setNotes(prev => [{ id: Date.now().toString(), text, color: 'bg-yellow-100' }, ...prev]);
   const removeNote = (id: string) => setNotes(prev => prev.filter(n => n.id !== id));
 

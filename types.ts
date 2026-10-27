@@ -23,6 +23,8 @@ export interface Instruction {
 
 export interface Recipe {
   id: string;
+  /** On a planned meal: the date (YYYY-MM-DD) it's planned for. */
+  plannedFor?: string;
   name: string;
   ingredients: Ingredient[];
   instructions: Instruction[];
