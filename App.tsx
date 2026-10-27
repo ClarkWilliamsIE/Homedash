@@ -22,6 +22,7 @@ import { apiUrl } from './lib/runtime';
 import { pack, mergeState, SyncState, ManualItem as SyncManualItem } from './lib/merge';
 import { HomeSettings, settingsStore, withDefaults } from './lib/settings';
 import { recordItem, setItemCatalog } from './lib/items';
+import { nudgeRemoteHass, startRemoteHass } from './lib/haRemote';
 
 const INITIAL_PLAN: WeeklyPlan = {
   Sunday: [], Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: []
@@ -102,6 +103,24 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   const isPhone = useIsPhone();
   const online = useOnline();
   const [cached] = useState(readCache);
+
+  // Phone/website: reach Home Assistant over Tailscale when possible (the kitchen iPad is already inside it).
+  const connectHouse = (url?: string, token?: string) => {
+    if (embedded) return;
+    try {
+      if (url && token) localStorage.setItem('homedash_ha', JSON.stringify({ url, token }));
+      const saved = url && token ? { url, token } : JSON.parse(localStorage.getItem('homedash_ha') || 'null');
+      if (saved?.url && saved?.token) startRemoteHass(saved.url, saved.token);
+    } catch { /* storage blocked */ }
+  };
+  useEffect(() => { connectHouse(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (embedded) return;
+    const again = () => { if (!document.hidden) nudgeRemoteHass(); };
+    document.addEventListener('visibilitychange', again);
+    window.addEventListener('online', again);
+    return () => { document.removeEventListener('visibilitychange', again); window.removeEventListener('online', again); };
+  }, [embedded]);
   const [link] = useState(readLinkParams);
 
   // --- PIN & AUTH STATE ---
@@ -215,6 +234,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
         if (data.access_token) {
           localStorage.setItem('family_pin', pin);
           tokenAt.current = Date.now();
+          connectHouse(data.ha_url, data.ha_token);
           setNeedsPin(false);
           setPinError(false);
           setAuth(a => ({ ...a, token: data.access_token, isAuthenticated: true }));

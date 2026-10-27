@@ -25,7 +25,7 @@ const listeners = new Set<() => void>();
 
 export const hassStore = {
   get: () => current,
-  set: (hass: Hass) => {
+  set: (hass: Hass | null) => {
     current = hass;
     listeners.forEach(l => l());
   },
@@ -35,7 +35,7 @@ export const hassStore = {
   },
 };
 
-/** True when Homedash is running inside Home Assistant. */
+/** True when Home Assistant is connected (inside it on the kitchen iPad, or reached over Tailscale). */
 export const useIsHome = () => useSyncExternalStore(hassStore.subscribe, () => current !== null);
 
 /** One entity's state object. Only re-renders when that entity changes. */

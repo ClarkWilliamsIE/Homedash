@@ -54,8 +54,12 @@ export default async function handler(req, res) {
       throw new Error("Failed to get access token");
     }
 
-    // 3. Send the Google token back to the frontend
-    res.status(200).json({ access_token: tokens.access_token });
+    // 3. Send the Google token back to the frontend, plus (if set up) how to reach Home Assistant
+    // through Tailscale, so the phone app can show the lights and music when it's reachable.
+    res.status(200).json({
+      access_token: tokens.access_token,
+      ...(process.env.HA_URL && process.env.HA_TOKEN ? { ha_url: process.env.HA_URL, ha_token: process.env.HA_TOKEN } : {}),
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
