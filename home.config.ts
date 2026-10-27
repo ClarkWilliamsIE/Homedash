@@ -37,9 +37,10 @@ export const HOME = {
       { script: 'script.profile_wind_down', name: 'Wind down', hint: 'Bedroom only', tone: 'indigo' },
     ],
     sources: [
-      { script: 'script.play_rnz_in_kitchen', name: 'RNZ National' },
-      { script: 'script.play_good_playlist', name: '"Good" playlist' },
-      { script: 'script.play_but_why_podcast', name: 'But Why podcast' },
+      // Played through Music Assistant on whichever speakers you pick.
+      { name: 'RNZ National', mediaId: 'http://radionz-ice.streamguys.com/national.mp3', mediaType: 'radio', fallbackUrl: true },
+      { name: '"Good" playlist', mediaId: 'library://playlist/56', mediaType: 'playlist', spotify: true },
+      { name: 'But Why podcast', mediaId: 'podcastfeed--uxKFdKCE://podcast/spodcastsvprnetbutwhy', mediaType: 'podcast' },
     ],
   },
 

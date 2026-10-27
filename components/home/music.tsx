@@ -40,8 +40,8 @@ const STATIONS: [RegExp, string][] = [
 export const describeMedia = (e?: HassEntity): { title?: string; artist?: string } => {
   if (!e) return {};
   const a = e.attributes;
-  const title = a.media_title && !/^ZPSTR_/.test(a.media_title) ? a.media_title : undefined;
-  const id = String(a.media_content_id || '');
+  const title = a.media_title && !/^ZPSTR_|^https?:\/\//.test(a.media_title) ? a.media_title : undefined;
+  const id = `${a.media_content_id || ''} ${a.media_title || ''}`;
   const station = a.media_channel || STATIONS.find(([re]) => re.test(id))?.[1];
   if (title) return { title, artist: a.media_artist || (station !== title ? station : undefined) };
   if (station) return { title: station, artist: 'Radio' };
@@ -65,13 +65,20 @@ const useMainPlayer = () => {
   const pick = (want: string) => PLAYERS.findIndex((p, i) => states[i]?.state === want && !(i > 0 && groupMembers.includes(p.entity) && states[0]?.state === want));
   let idx = pick('playing');
   if (idx < 0) idx = pick('paused');
-  return { states, idx, groupMembers };
+  // Every active player, playing before paused, in priority order.
+  const order = [
+    ...PLAYERS.map((_, i) => i).filter(i => states[i]?.state === 'playing'),
+    ...PLAYERS.map((_, i) => i).filter(i => states[i]?.state === 'paused'),
+  ];
+  return { states, idx, groupMembers, order };
 };
 
 export const NowPlaying: React.FC<{ large?: boolean }> = ({ large }) => {
   const { states, idx } = useMainPlayer();
   const current = idx >= 0 ? states[idx] : states[0];
   const where = idx >= 0 ? PLAYERS[idx] : PLAYERS[0];
+  const main = useStreams()[0];
+  const whereName = main?.entity === where.entity ? main.name : where.name;
   const playing = current?.state === 'playing';
   const active = playing || current?.state === 'paused';
   const art = hassAsset(current?.attributes.entity_picture);
@@ -89,7 +96,7 @@ export const NowPlaying: React.FC<{ large?: boolean }> = ({ large }) => {
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-slate-500 mb-0.5 truncate">
-          {playing ? `Playing in ${where.name}` : active ? `Paused in ${where.name}` : 'Nothing playing'}
+          {playing ? `Playing in ${whereName}` : active ? `Paused in ${whereName}` : 'Nothing playing'}
         </p>
         <p className={`${large ? 'font-display text-3xl' : 'text-lg font-semibold'} text-slate-900 truncate leading-tight`}>{title || 'Pick a mood below'}</p>
         <p className={`${large ? 'text-lg' : 'text-sm'} font-semibold text-slate-500 truncate`}>{artist || '\u00a0'}</p>
@@ -156,9 +163,8 @@ export const MasterVolume: React.FC = () => {
   const speakers = HOME.music.speakers;
   const states = useEntities(speakers.map(s => s.entity));
   // Only the speakers playing the main music (not, say, Lilly's story in another room).
-  const { states: all, idx } = useMainPlayer();
-  const mainTitle = idx >= 0 ? all[idx]?.attributes.media_title : undefined;
-  const live = speakers.filter((s, i) => ['playing', 'paused'].includes(states[i]?.state || '') && (!mainTitle || states[i]?.attributes.media_title === mainTitle));
+  const main = useStreams()[0];
+  const live = main && !main.direct ? speakers.filter(s => main.members.includes(s.entity)) : [];
   const targets = (live.length ? live : speakers.filter((s, i) => states[i] && states[i]!.state !== 'unavailable'));
   const vols = targets.map(t => states[speakers.indexOf(t)]?.attributes.volume_level ?? 0);
   const top = Math.max(0, ...vols);
@@ -213,35 +219,118 @@ export const ShuffleButton: React.FC<{ entityId: string; className?: string }> =
 
 const SYNC_GROUP_MEMBERS = ['media_player.kitchen', 'media_player.family_room', 'media_player.living_room_3'];
 
-/** Every speaker with an on/off switch (in or out of the music) and its own volume.
- *  On joins it to whatever is playing; off takes it out (and stops it if it was playing on its own). */
+// --- What's playing where -------------------------------------------------------------------
+
+/** One thing playing (or paused) and the speakers it's on. */
+export interface Stream {
+  /** The player that controls it: the sync group, a lead speaker, or a Sonos entity. */
+  entity: string;
+  state: HassEntity;
+  /** Our speakers (Music Assistant entities) that are part of it. */
+  members: string[];
+  /** Started outside Music Assistant (the Sonos app); only Sonos speakers can join. */
+  direct: boolean;
+  name: string;
+}
+
+const speakerName = (entity: string) => SPEAKERS.find(s => s.entity === entity)?.name.toLowerCase() || '';
+const listNames = (ids: string[]) => {
+  const n = ids.map(speakerName).filter(Boolean);
+  return n.length <= 1 ? n.join('') : `${n.slice(0, -1).join(', ')} & ${n[n.length - 1]}`;
+};
+
+/** Everything playing in the house, the main music first. */
+export const useStreams = (): Stream[] => {
+  const { states, order } = useMainPlayer();
+  const covered = new Set<string>();
+  const out: Stream[] = [];
+  for (const i of order) {
+    const p = PLAYERS[i];
+    const e = states[i]!;
+    const grp: string[] = e.attributes.group_members || [];
+    let members: string[];
+    if (p.directFor) {
+      members = [p.directFor, ...SPEAKERS.filter(s => s.direct && s.entity !== p.directFor && grp.includes(s.direct)).map(s => s.entity)];
+    } else if (p.entity === HOME.music.group) {
+      members = SPEAKERS.map(s => s.entity).filter(id => grp.includes(id));
+    } else {
+      members = [p.entity, ...SPEAKERS.map(s => s.entity).filter(id => id !== p.entity && grp.includes(id))];
+    }
+    if (p.entity !== HOME.music.group && covered.has(members[0])) continue;
+    members = members.filter(m => !covered.has(m));
+    if (!members.length && p.entity !== HOME.music.group) continue;
+    members.forEach(m => covered.add(m));
+    out.push({ entity: p.entity, state: e, members, direct: !!p.directFor, name: listNames(members) || p.name });
+  }
+  return out;
+};
+
+// Switches show the change straight away; speakers can take a while to report it (a paused
+// speaker only goes idle after a minute or so).
+type Override = { on: boolean; stream: string; at: number };
+const overrides = new Map<string, Override>();
+const overrideListeners = new Set<() => void>();
+let overrideVersion = 0;
+const setOverride = (speaker: string, o: Override) => {
+  overrides.set(speaker, o); overrideVersion++; overrideListeners.forEach(l => l());
+  setTimeout(() => { if (overrides.get(speaker) === o) { overrides.delete(speaker); overrideVersion++; overrideListeners.forEach(l => l()); } }, o.on ? 12000 : 90000);
+};
+const useOverrideVersion = () => React.useSyncExternalStore(
+  l => { overrideListeners.add(l); return () => { overrideListeners.delete(l); }; },
+  () => overrideVersion,
+);
+
+/** Is this speaker part of this stream, counting a switch flicked a moment ago. */
+const inStream = (stream: Stream | undefined, speaker: string) => {
+  const o = overrides.get(speaker);
+  if (o && stream) return o.stream === stream.entity ? o.on : (o.on ? false : stream.members.includes(speaker));
+  return !!stream && stream.members.includes(speaker);
+};
+
+/** Add a speaker to, or take it out of, something that's playing. */
+const setSpeakerIn = (stream: Stream, sp: Speaker, on: boolean, group?: HassEntity) => {
+  setOverride(sp.entity, { on, stream: stream.entity, at: Date.now() });
+  if (stream.direct) {
+    if (!sp.direct) return;
+    if (on) callService('media_player', 'join', { group_members: [sp.direct] }, { entity_id: stream.entity });
+    else if (sp.direct === stream.entity) media('media_pause', stream.entity);
+    else callService('media_player', 'unjoin', undefined, { entity_id: sp.direct });
+    return;
+  }
+  const id = sp.entity;
+  if (on) {
+    if (id === stream.entity) return;
+    // A speaker already in another group has to leave it before it can join this one.
+    const elsewhere = (group?.attributes.group_members || []).includes(id) && stream.entity !== HOME.music.group;
+    Promise.resolve(elsewhere ? callService('media_player', 'unjoin', undefined, { entity_id: id }) : null)
+      .catch(() => {})
+      .then(() => new Promise(r => setTimeout(r, elsewhere ? 600 : 0)))
+      .then(() => callService('media_player', 'join', { group_members: [id] }, { entity_id: stream.entity }));
+    return;
+  }
+  if (id === stream.entity) { media('media_pause', id); return; }
+  callService('media_player', 'unjoin', undefined, { entity_id: id });
+  if (!SYNC_GROUP_MEMBERS.includes(id) || !(group?.attributes.group_members || []).includes(id)) media('media_pause', id);
+};
+
+/** Every speaker with an on/off switch (in or out of the main music) and its own volume. */
 export const SpeakerMixer: React.FC<{ compact?: boolean }> = ({ compact }) => {
+  useOverrideVersion();
   const speakers = SPEAKERS;
   const group = useEntity(HOME.music.group);
   const states = useEntities(speakers.map(s => s.entity));
   const direct = useEntities(speakers.map(s => s.direct || ''));
+  const streams = useStreams();
+  const main = streams[0];
   const outside = (i: number) => playingOutsideMA(direct[i]) && states[i]?.state !== 'playing';
-  const isOn = (i: number) => ['playing', 'paused'].includes(states[i]?.state || '') || outside(i);
-
-  // What a speaker should join: the group if it's going, otherwise any speaker that's playing.
-  const leader = () => {
-    if (group && ['playing', 'paused'].includes(group.state)) return HOME.music.group;
-    const i = speakers.findIndex((_, k) => states[k]?.state === 'playing');
-    return i >= 0 ? speakers[i].entity : HOME.music.group;
-  };
 
   const toggle = (i: number) => {
-    const id = speakers[i].entity;
-    if (outside(i)) { callService('media_player', 'media_pause', undefined, { entity_id: speakers[i].direct! }); return; }
-    if (isOn(i)) {
-      callService('media_player', 'unjoin', undefined, { entity_id: id });
-      if (!SYNC_GROUP_MEMBERS.includes(id) || !(group?.attributes.group_members || []).includes(id)) {
-        callService('media_player', 'media_pause', undefined, { entity_id: id });
-      }
-    } else {
-      const lead = leader();
-      if (lead !== id) callService('media_player', 'join', { group_members: [id] }, { entity_id: lead });
-    }
+    const sp = speakers[i];
+    const on = inStream(main, sp.entity);
+    if (main) { setSpeakerIn(main, sp, !on, group); return; }
+    // Nothing playing: wake the speaker into the usual group.
+    setOverride(sp.entity, { on: true, stream: HOME.music.group, at: Date.now() });
+    callService('media_player', 'join', { group_members: [sp.entity] }, { entity_id: HOME.music.group });
   };
 
   return (
@@ -249,13 +338,16 @@ export const SpeakerMixer: React.FC<{ compact?: boolean }> = ({ compact }) => {
       {speakers.map((sp, i) => {
         const e = states[i];
         const offline = !e || e.state === 'unavailable';
-        const on = isOn(i);
+        const on = inStream(main, sp.entity);
+        const cantJoin = !!main?.direct && !sp.direct;
         const src = outside(i) ? direct[i] : e;
         const muted = !!src?.attributes.is_volume_muted;
         const vol = Math.round((src?.attributes.volume_level ?? 0) * 100);
         return (
           <li key={sp.entity} className={`flex items-center gap-3 ${compact ? '' : 'p-3 rounded-2xl bg-slate-50'} ${offline ? 'opacity-40' : ''}`}>
-            <Switch on={on} tone="indigo" label={`${sp.name} on or off`} onToggle={() => { if (!offline) toggle(i); }} />
+            <span className={cantJoin && !on ? 'opacity-40' : ''}>
+              <Switch on={on} tone="indigo" label={`${sp.name} on or off`} onToggle={() => { if (!offline && !(cantJoin && !on)) toggle(i); }} />
+            </span>
             <span className={`shrink-0 ${compact ? 'w-24 text-sm' : 'w-28'} font-semibold truncate ${on ? 'text-slate-900' : 'text-slate-500'}`}>{sp.name}</span>
             <FillSlider
               className={`${compact ? 'h-9' : 'h-10'} flex-1`}
@@ -273,42 +365,57 @@ export const SpeakerMixer: React.FC<{ compact?: boolean }> = ({ compact }) => {
   );
 };
 
-/** Speakers playing something different from the main "Now playing" (Lilly's story in the
- *  family room while the kitchen has music, say). Shows nothing when everything matches. */
+/** Tap a speaker to add it to (or take it out of) one particular stream. */
+const StreamSpeakers: React.FC<{ stream: Stream }> = ({ stream }) => {
+  useOverrideVersion();
+  const group = useEntity(HOME.music.group);
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-2">
+      {SPEAKERS.filter(sp => !stream.direct || sp.direct).map(sp => {
+        const on = inStream(stream, sp.entity);
+        return (
+          <button key={sp.entity} aria-pressed={on} onClick={() => setSpeakerIn(stream, sp, !on, group)}
+            className={`h-8 px-3 rounded-full text-xs font-semibold border transition-colors ${on ? 'bg-indigo-700 border-indigo-700 text-white' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300'}`}>
+            {sp.name}
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+/** Things playing besides the main "Now playing" (Lilly's story in the family room while the
+ *  kitchen has music, say), each with its own speaker buttons. Shows nothing otherwise. */
 export const AlsoPlaying: React.FC<{ compact?: boolean }> = ({ compact }) => {
-  const { states, idx, groupMembers } = useMainPlayer();
-  const main = idx >= 0 ? states[idx] : undefined;
-  const mainEntity = idx >= 0 ? PLAYERS[idx].entity : undefined;
-  const others = PLAYERS.map((p, i) => ({ p, e: states[i] })).filter(({ p, e }, i) => {
-    if (i === idx || !e || !['playing', 'paused'].includes(e.state)) return false;
-    if (mainEntity === HOME.music.group && groupMembers.includes(p.entity)) return false; // part of the main group
-    if (i === 0 && idx > 0 && groupMembers.includes(PLAYERS[idx].entity)) return false;
-    if (PLAYERS[i].directFor && PLAYERS[i].directFor === mainEntity) return false;
-    if (idx >= 0 && PLAYERS[idx].directFor === p.entity) return false;
-    return !main || e.attributes.media_title !== main.attributes.media_title || e.attributes.media_artist !== main.attributes.media_artist;
-  });
+  const streams = useStreams();
+  const others = streams.slice(1);
   if (!others.length) return null;
   return (
     <div className={compact ? 'mt-4 pt-4 border-t border-slate-100' : ''}>
       <p className={`font-semibold text-slate-700 ${compact ? 'text-sm mb-2' : 'mb-3'}`}>Also playing</p>
       <ul className="space-y-2">
-        {others.map(({ p, e }) => {
-          const playing = e!.state === 'playing';
-          const art = hassAsset(e!.attributes.entity_picture);
+        {others.map(st => {
+          const e = st.state;
+          const playing = e.state === 'playing';
+          const art = hassAsset(e.attributes.entity_picture);
+          const info = describeMedia(e);
           return (
-            <li key={p.entity} className="flex items-center gap-3 p-2 rounded-2xl bg-slate-50">
-              <span className={`${compact ? 'w-11 h-11' : 'w-14 h-14'} rounded-xl overflow-hidden bg-slate-200 flex items-center justify-center shrink-0`}>
-                {art ? <img src={art} alt="" className="w-full h-full object-cover" /> : <HomeIcons.Music className="w-5 h-5 text-slate-400" />}
-              </span>
-              <span className="flex-1 min-w-0">
-                <span className="block text-sm text-slate-500 truncate">{playing ? 'Playing' : 'Paused'} in {p.name}</span>
-                <span className="block font-semibold text-slate-900 truncate">{describeMedia(e).title || 'Something'}</span>
-                {!compact && describeMedia(e).artist && <span className="block text-sm text-slate-500 truncate">{describeMedia(e).artist}</span>}
-              </span>
-              <button aria-label={playing ? `Pause ${p.name}` : `Play ${p.name}`} onClick={() => media('media_play_pause', p.entity)}
-                className="w-10 h-10 rounded-full bg-indigo-700 text-white flex items-center justify-center shrink-0">
-                {playing ? <HomeIcons.Pause className="w-4 h-4" /> : <HomeIcons.Play className="w-4 h-4 ml-0.5" />}
-              </button>
+            <li key={st.entity} className="p-2 rounded-2xl bg-slate-50">
+              <div className="flex items-center gap-3">
+                <span className={`${compact ? 'w-11 h-11' : 'w-14 h-14'} rounded-xl overflow-hidden bg-slate-200 flex items-center justify-center shrink-0`}>
+                  {art ? <img src={art} alt="" className="w-full h-full object-cover" /> : <HomeIcons.Music className="w-5 h-5 text-slate-400" />}
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm text-slate-500 truncate">{playing ? 'Playing' : 'Paused'} in {st.name}</span>
+                  <span className="block font-semibold text-slate-900 truncate">{info.title || 'Something'}</span>
+                  {!compact && info.artist && <span className="block text-sm text-slate-500 truncate">{info.artist}</span>}
+                </span>
+                <button aria-label={playing ? `Pause ${st.name}` : `Play ${st.name}`} onClick={() => media('media_play_pause', st.entity)}
+                  className="w-10 h-10 rounded-full bg-indigo-700 text-white flex items-center justify-center shrink-0">
+                  {playing ? <HomeIcons.Pause className="w-4 h-4" /> : <HomeIcons.Play className="w-4 h-4 ml-0.5" />}
+                </button>
+              </div>
+              <StreamSpeakers stream={st} />
             </li>
           );
         })}
