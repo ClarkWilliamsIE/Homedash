@@ -23,10 +23,12 @@ export const HOME = {
     /** The Music Assistant sync group shown as "Now playing". */
     group: 'media_player.kitchen_family_room',
     speakers: [
-      { entity: 'media_player.kitchen', name: 'Kitchen' },
-      { entity: 'media_player.family_room', name: 'Family room' },
+      // `direct` is the speaker's own Sonos entity, so things started from the Sonos app
+      // (RNZ, say) show up too, not just what Music Assistant is playing.
+      { entity: 'media_player.kitchen', name: 'Kitchen', direct: 'media_player.kitchen_kitchen' },
+      { entity: 'media_player.family_room', name: 'Family room', direct: 'media_player.family_room_family_room' },
       { entity: 'media_player.living_room_3', name: 'Stereo' },
-      { entity: 'media_player.bedroom', name: 'Bedroom' },
+      { entity: 'media_player.bedroom', name: 'Bedroom', direct: 'media_player.bedroom_bedroom' },
     ],
     profiles: [
       { script: 'script.profile_cooking', name: 'Cooking', hint: 'Kitchen loud', tone: 'orange' },

@@ -1,7 +1,7 @@
 // components/home/music.tsx
 import React from 'react';
 import { HOME } from '../../home.config';
-import { callService, hassAsset, runScript, useEntities, useEntity } from '../../lib/hass';
+import { callService, hassAsset, runScript, useEntities, useEntity, HassEntity } from '../../lib/hass';
 import { FillSlider, Switch } from './controls';
 import { TONE_STYLES, useSettings } from '../../lib/settings';
 import { HomeIcons } from './icons';
@@ -10,15 +10,57 @@ const media = (service: string, entityId: string, data?: Record<string, any>) =>
   callService('media_player', service, data, { entity_id: entityId });
 
 
-const PLAYERS = [
+type Speaker = { entity: string; name: string; direct?: string };
+const SPEAKERS = HOME.music.speakers as Speaker[];
+
+/** Music Assistant's players first, then each speaker's own Sonos entity (only counted when
+ *  something outside Music Assistant is playing on it, like RNZ from the Sonos app). */
+const PLAYERS: { entity: string; name: string; directFor?: string }[] = [
   { entity: HOME.music.group, name: 'kitchen & family room' },
-  ...HOME.music.speakers.map(s => ({ entity: s.entity, name: s.name.toLowerCase() })),
+  ...SPEAKERS.map(s => ({ entity: s.entity, name: s.name.toLowerCase() })),
+  ...SPEAKERS.filter(s => s.direct).map(s => ({ entity: s.direct!, name: s.name.toLowerCase(), directFor: s.entity })),
 ];
+
+const active = (e?: HassEntity) => !!e && (e.state === 'playing' || e.state === 'paused');
+
+/** Playing on the Sonos itself, not streamed to it by Music Assistant. */
+export const playingOutsideMA = (e?: HassEntity) => {
+  if (!active(e)) return false;
+  const id = String(e!.attributes.media_content_id || '');
+  return e!.attributes.source !== 'AirPlay' && !/airplay:|:8097\//.test(id);
+};
+
+const STATIONS: [RegExp, string][] = [
+  [/radionz.*national/i, 'RNZ National'],
+  [/radionz.*concert/i, 'RNZ Concert'],
+  [/radionz/i, 'RNZ'],
+];
+
+/** Title and second line for what's playing; radio streams often come with neither. */
+export const describeMedia = (e?: HassEntity): { title?: string; artist?: string } => {
+  if (!e) return {};
+  const a = e.attributes;
+  const title = a.media_title && !/^ZPSTR_/.test(a.media_title) ? a.media_title : undefined;
+  const id = String(a.media_content_id || '');
+  const station = a.media_channel || STATIONS.find(([re]) => re.test(id))?.[1];
+  if (title) return { title, artist: a.media_artist || (station !== title ? station : undefined) };
+  if (station) return { title: station, artist: 'Radio' };
+  if (/radio|x-sonosapi-stream|x-rincon-mp3radio/i.test(id)) return { title: 'Radio', artist: a.source };
+  return { title: a.source, artist: a.media_artist };
+};
 
 /** Album art, title and controls for whichever of our speakers is playing (the group first). */
 /** Which player the big "Now playing" shows: the group first, then any speaker that's playing. */
 const useMainPlayer = () => {
-  const states = useEntities(PLAYERS.map(p => p.entity));
+  const raw = useEntities(PLAYERS.map(p => p.entity));
+  // A Sonos entity only counts when it's playing something of its own and Music Assistant
+  // isn't already playing on that speaker.
+  const states = raw.map((e, i) => {
+    const forMa = PLAYERS[i].directFor;
+    if (!forMa) return e;
+    const ma = raw[PLAYERS.findIndex(p => p.entity === forMa)];
+    return playingOutsideMA(e) && ma?.state !== 'playing' ? e : undefined;
+  });
   const groupMembers: string[] = states[0]?.attributes.group_members || [];
   const pick = (want: string) => PLAYERS.findIndex((p, i) => states[i]?.state === want && !(i > 0 && groupMembers.includes(p.entity) && states[0]?.state === want));
   let idx = pick('playing');
@@ -33,8 +75,9 @@ export const NowPlaying: React.FC<{ large?: boolean }> = ({ large }) => {
   const playing = current?.state === 'playing';
   const active = playing || current?.state === 'paused';
   const art = hassAsset(current?.attributes.entity_picture);
-  const title = active ? current?.attributes.media_title : undefined;
-  const artist = active ? current?.attributes.media_artist : undefined;
+  const info = active ? describeMedia(current) : {};
+  const title = info.title;
+  const artist = info.artist;
   const vol = Math.round((current?.attributes.volume_level ?? 0) * 100);
   const size = large ? 'w-40 h-40 rounded-3xl' : 'w-20 h-20 rounded-2xl';
   const target = where.entity;
@@ -173,10 +216,12 @@ const SYNC_GROUP_MEMBERS = ['media_player.kitchen', 'media_player.family_room', 
 /** Every speaker with an on/off switch (in or out of the music) and its own volume.
  *  On joins it to whatever is playing; off takes it out (and stops it if it was playing on its own). */
 export const SpeakerMixer: React.FC<{ compact?: boolean }> = ({ compact }) => {
-  const speakers = HOME.music.speakers;
+  const speakers = SPEAKERS;
   const group = useEntity(HOME.music.group);
   const states = useEntities(speakers.map(s => s.entity));
-  const isOn = (i: number) => ['playing', 'paused'].includes(states[i]?.state || '');
+  const direct = useEntities(speakers.map(s => s.direct || ''));
+  const outside = (i: number) => playingOutsideMA(direct[i]) && states[i]?.state !== 'playing';
+  const isOn = (i: number) => ['playing', 'paused'].includes(states[i]?.state || '') || outside(i);
 
   // What a speaker should join: the group if it's going, otherwise any speaker that's playing.
   const leader = () => {
@@ -187,6 +232,7 @@ export const SpeakerMixer: React.FC<{ compact?: boolean }> = ({ compact }) => {
 
   const toggle = (i: number) => {
     const id = speakers[i].entity;
+    if (outside(i)) { callService('media_player', 'media_pause', undefined, { entity_id: speakers[i].direct! }); return; }
     if (isOn(i)) {
       callService('media_player', 'unjoin', undefined, { entity_id: id });
       if (!SYNC_GROUP_MEMBERS.includes(id) || !(group?.attributes.group_members || []).includes(id)) {
@@ -204,8 +250,9 @@ export const SpeakerMixer: React.FC<{ compact?: boolean }> = ({ compact }) => {
         const e = states[i];
         const offline = !e || e.state === 'unavailable';
         const on = isOn(i);
-        const muted = !!e?.attributes.is_volume_muted;
-        const vol = Math.round((e?.attributes.volume_level ?? 0) * 100);
+        const src = outside(i) ? direct[i] : e;
+        const muted = !!src?.attributes.is_volume_muted;
+        const vol = Math.round((src?.attributes.volume_level ?? 0) * 100);
         return (
           <li key={sp.entity} className={`flex items-center gap-3 ${compact ? '' : 'p-3 rounded-2xl bg-slate-50'} ${offline ? 'opacity-40' : ''}`}>
             <Switch on={on} tone="indigo" label={`${sp.name} on or off`} onToggle={() => { if (!offline) toggle(i); }} />
@@ -215,7 +262,7 @@ export const SpeakerMixer: React.FC<{ compact?: boolean }> = ({ compact }) => {
               tone="indigo"
               disabled={offline}
               value={muted ? 0 : vol}
-              onCommit={v => media('volume_set', sp.entity, { volume_level: v / 100 })}
+              onCommit={v => media('volume_set', outside(i) ? sp.direct! : sp.entity, { volume_level: v / 100 })}
               label=""
             />
             <span className="w-9 text-right text-sm tabular-nums text-slate-500">{muted ? 'Mute' : vol}</span>
@@ -236,6 +283,8 @@ export const AlsoPlaying: React.FC<{ compact?: boolean }> = ({ compact }) => {
     if (i === idx || !e || !['playing', 'paused'].includes(e.state)) return false;
     if (mainEntity === HOME.music.group && groupMembers.includes(p.entity)) return false; // part of the main group
     if (i === 0 && idx > 0 && groupMembers.includes(PLAYERS[idx].entity)) return false;
+    if (PLAYERS[i].directFor && PLAYERS[i].directFor === mainEntity) return false;
+    if (idx >= 0 && PLAYERS[idx].directFor === p.entity) return false;
     return !main || e.attributes.media_title !== main.attributes.media_title || e.attributes.media_artist !== main.attributes.media_artist;
   });
   if (!others.length) return null;
@@ -253,8 +302,8 @@ export const AlsoPlaying: React.FC<{ compact?: boolean }> = ({ compact }) => {
               </span>
               <span className="flex-1 min-w-0">
                 <span className="block text-sm text-slate-500 truncate">{playing ? 'Playing' : 'Paused'} in {p.name}</span>
-                <span className="block font-semibold text-slate-900 truncate">{e!.attributes.media_title || 'Something'}</span>
-                {!compact && e!.attributes.media_artist && <span className="block text-sm text-slate-500 truncate">{e!.attributes.media_artist}</span>}
+                <span className="block font-semibold text-slate-900 truncate">{describeMedia(e).title || 'Something'}</span>
+                {!compact && describeMedia(e).artist && <span className="block text-sm text-slate-500 truncate">{describeMedia(e).artist}</span>}
               </span>
               <button aria-label={playing ? `Pause ${p.name}` : `Play ${p.name}`} onClick={() => media('media_play_pause', p.entity)}
                 className="w-10 h-10 rounded-full bg-indigo-700 text-white flex items-center justify-center shrink-0">
