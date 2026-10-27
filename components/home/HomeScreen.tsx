@@ -289,7 +289,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
             <AlsoPlaying compact />
             <div className="mt-4"><MasterVolume /></div>
             <div className="mt-4 pt-4 border-t border-slate-100"><SpeakerMixer compact /></div>
-            <div className="mt-4"><ProfileGrid /></div>
+            <div className="mt-4 empty:hidden"><ProfileGrid /></div>
           </Panel>
           <LightsCard onMore={() => onNavigate(View.Lights)} />
           <div className="flex flex-col gap-5 md:col-span-2 lg:col-span-1">

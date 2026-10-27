@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { HOME } from '../../home.config';
 import { friendlyError, playSource, Source } from '../../lib/musicLibrary';
+import { useSettings } from '../../lib/settings';
 import { Card } from './controls';
 import { HomeIcons } from './icons';
 import { AlsoPlaying, NowPlaying, ProfileGrid, SpeakerMixer } from './music';
@@ -84,6 +85,16 @@ const PlaySomething: React.FC = () => {
   );
 };
 
+const MoodsCard: React.FC = () => {
+  const { showMoods } = useSettings();
+  if (!showMoods) return null;
+  return (
+    <Card title="Moods">
+      <ProfileGrid large />
+    </Card>
+  );
+};
+
 const MusicView: React.FC = () => (
   <div className="space-y-6 max-w-6xl">
     <Card className="!p-8">
@@ -91,9 +102,7 @@ const MusicView: React.FC = () => (
       <div className="mt-6 empty:hidden"><AlsoPlaying /></div>
     </Card>
 
-    <Card title="Moods">
-      <ProfileGrid large />
-    </Card>
+    <MoodsCard />
 
     <MusicBrowser />
 

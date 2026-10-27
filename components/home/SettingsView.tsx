@@ -289,10 +289,16 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onChange, calenda
       <Card
         title="Music moods"
         action={
+          <div className="flex items-center gap-4">
+          <label className="flex items-center gap-2 text-sm font-semibold text-slate-600">
+            <Switch tone="indigo" on={settings.showMoods} onToggle={() => update({ showMoods: !settings.showMoods })} label="Show mood buttons" />
+            Show buttons
+          </label>
           <button onClick={() => setEditing({ mood: newMood(), isNew: true })} disabled={!admin}
             className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold disabled:opacity-40">
             <HomeIcons.Plus className="w-4 h-4" /> New mood
           </button>
+          </div>
         }
       >
         {!admin && (
@@ -300,6 +306,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onChange, calenda
             You're signed in to Home Assistant without admin rights, so moods can be played and reordered but not edited here.
           </p>
         )}
+        <p className="text-sm text-slate-500 mb-3">
+          {settings.showMoods
+            ? 'Mood buttons show on the home screen and the Music page.'
+            : 'Mood buttons are hidden. They still work for the Start cooking button, and you can try them here.'}
+        </p>
         <div className="space-y-2">
           {settings.moods.map((m, i) => (
             <div key={m.id} className="flex items-center gap-3 p-3 rounded-2xl bg-slate-50">

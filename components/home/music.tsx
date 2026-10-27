@@ -116,7 +116,8 @@ export const NowPlaying: React.FC<{ large?: boolean }> = ({ large }) => {
 
 /** The listening profiles (Cooking, Dinner…) as big buttons. */
 export const ProfileGrid: React.FC<{ large?: boolean }> = ({ large }) => {
-  const { moods } = useSettings();
+  const { moods, showMoods } = useSettings();
+  if (!showMoods) return null;
   return (
     <div className={`grid ${large ? 'grid-cols-2 lg:grid-cols-4 gap-4' : 'grid-cols-2 gap-2.5'}`}>
       {moods.map(m => (
