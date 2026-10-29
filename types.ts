@@ -34,6 +34,8 @@ export interface Recipe {
   isNew?: boolean;      // New Field
   /** A one-off meal on the plan (a BBQ, takeaways): just a title and a few things to buy. */
   isCustom?: boolean;
+  /** The web page a recipe was imported from, to check the original. */
+  sourceUrl?: string;
 }
 
 export type DayOfWeek = 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday';

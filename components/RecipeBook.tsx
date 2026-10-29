@@ -303,6 +303,13 @@ const RecipeView: React.FC<{
                 </div>
                 <h1 className="font-display text-[2.1rem] md:text-5xl leading-[1.1] text-slate-900">{recipe.name}</h1>
                 {plannedOn.length > 0 && <p className="text-slate-500 mt-2">On the plan for {plannedOn.join(' and ')}</p>}
+                {recipe.sourceUrl && (
+                  <a href={recipe.sourceUrl} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 mt-2 text-sm font-semibold text-indigo-700 underline underline-offset-4 decoration-indigo-200 hover:decoration-indigo-700">
+                    Original recipe on {siteName(recipe.sourceUrl)}
+                    <svg aria-hidden="true" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></svg>
+                  </a>
+                )}
                 <div className="grid grid-cols-2 md:flex md:flex-wrap gap-2 mt-5">
                   <Btn size="lg" onClick={() => setCook(true)} disabled={!recipe.instructions.length} icon={<HomeIcons.Chef className="w-5 h-5" />}>Start cooking</Btn>
                   <Btn size="lg" variant="secondary" onClick={() => setChoosingDay(true)} icon={<Icon.Week className="w-5 h-5" />}>{added ? `On for ${added}` : 'Add to week'}</Btn>
@@ -334,13 +341,19 @@ const RecipeView: React.FC<{
   );
 };
 
+/** "bbc.co.uk" from a recipe link, for the "Original recipe on…" line. */
+const siteName = (url: string) => {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return 'the web'; }
+};
+
 // --- Add / edit form ---
 interface FormState {
   id: string; name: string; imageUrl: string; tags: string;
   ingredients: Ingredient[]; instructions: Instruction[];
   isFavorite: boolean; isNew: boolean;
+  sourceUrl: string;
 }
-const emptyForm = (): FormState => ({ id: '', name: '', imageUrl: '', tags: '', ingredients: [{ amount: '', unit: '', item: '' }], instructions: [{ text: '', isHeader: false }], isFavorite: false, isNew: true });
+const emptyForm = (): FormState => ({ id: '', name: '', imageUrl: '', tags: '', sourceUrl: '', ingredients: [{ amount: '', unit: '', item: '' }], instructions: [{ text: '', isHeader: false }], isFavorite: false, isNew: true });
 
 const field = 'w-full h-12 bg-slate-100 rounded-2xl px-4 text-[16px] outline-none focus:bg-white focus:ring-2 focus:ring-indigo-200';
 const label = 'block text-sm font-semibold text-slate-700 mb-1.5';
@@ -384,6 +397,7 @@ const RecipeForm: React.FC<{
         instructions: data.instructions?.length ? data.instructions : [{ text: '', isHeader: false }],
         tags: data.tags || f.tags || '',
         imageUrl: data.imageUrl || f.imageUrl || '',
+        sourceUrl: url.trim(),
       });
       if (data.imageUrl) setPreview(data.imageUrl);
       setShowImport(false);
@@ -471,6 +485,10 @@ const RecipeForm: React.FC<{
             <div>
               <label className={label} htmlFor="rf-tags">Tags</label>
               <input id="rf-tags" className={field} value={f.tags} onChange={e => set({ tags: e.target.value })} placeholder="Pasta, quick, freezer" />
+            </div>
+            <div>
+              <label className={label} htmlFor="rf-source">Original recipe link</label>
+              <input id="rf-source" type="url" inputMode="url" className={field} value={f.sourceUrl} onChange={e => set({ sourceUrl: e.target.value })} placeholder="https://… (added for you when you import)" />
             </div>
             <div className="flex gap-2">
               <button type="button" aria-pressed={f.isFavorite} onClick={() => set({ isFavorite: !f.isFavorite })} className={`h-10 px-4 rounded-full text-sm font-semibold flex items-center gap-1.5 border ${f.isFavorite ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white border-slate-200 text-slate-600'}`}>
@@ -636,6 +654,7 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
       imageUrl: f.imageUrl || `https://picsum.photos/seed/${encodeURIComponent(f.name)}/800/600`,
       isFavorite: f.isFavorite,
       isNew: f.isNew,
+      sourceUrl: f.sourceUrl.trim() || undefined,
     };
     return f.id ? onUpdateRecipe({ ...data, id: f.id }, file) : onAddRecipe(data, file);
   };
@@ -647,6 +666,7 @@ const RecipeBook: React.FC<RecipeBookProps> = ({
       ingredients: r.ingredients.length ? [...r.ingredients] : [{ amount: '', unit: '', item: '' }],
       instructions: r.instructions.length ? [...r.instructions] : [{ text: '', isHeader: false }],
       isFavorite: !!r.isFavorite, isNew: !!r.isNew,
+      sourceUrl: r.sourceUrl || '',
     },
   });
 

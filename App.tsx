@@ -90,7 +90,8 @@ const parseRecipeRows = (rows: any[][]): Recipe[] =>
       imageUrl: row[2] || `https://picsum.photos/seed/${idx}/400/300`,
       tags: row[3]?.split(',').map((s: string) => s.trim()) || [],
       isFavorite: row[6] === 'TRUE',
-      isNew: row[7] === 'TRUE'
+      isNew: row[7] === 'TRUE',
+      sourceUrl: row[8] || undefined,
     };
   });
 
@@ -308,7 +309,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   };
 
   const readRecipes = async (token: string): Promise<Recipe[] | 'expired'> => {
-    const res = await fetch(sheetUrl('Recipes!A2:H'), { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch(sheetUrl('Recipes!A2:I'), { headers: { Authorization: `Bearer ${token}` } });
     if (res.status === 401) return 'expired';
     if (!res.ok) throw new Error(`Recipe read failed (${res.status})`);
     const data = await res.json();
@@ -518,10 +519,11 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
         JSON.stringify(r.instructions),
         r.id,
         r.isFavorite ? 'TRUE' : 'FALSE',
-        r.isNew ? 'TRUE' : 'FALSE'
+        r.isNew ? 'TRUE' : 'FALSE',
+        r.sourceUrl || ''
       ]);
-      await fetch(sheetUrl('Recipes!A2:H:clear'), { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
-      const res = await fetch(sheetUrl('Recipes!A2:H', '?valueInputOption=USER_ENTERED'), { method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ values }) });
+      await fetch(sheetUrl('Recipes!A2:I:clear'), { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(sheetUrl('Recipes!A2:I', '?valueInputOption=USER_ENTERED'), { method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ values }) });
       if (!res.ok) throw new Error(`Recipe save failed (${res.status})`);
       setRecipes(next);
       return true;
