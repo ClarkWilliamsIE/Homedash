@@ -13,6 +13,8 @@ export interface Photo {
   name: string;
   /** Small copy for grids, when there is one */
   thumbId?: string;
+  /** Copy cropped to fill a 16:9 TV, when there is one */
+  tvName?: string;
   /** When it was taken, if known */
   taken?: Date;
 }
@@ -26,6 +28,8 @@ export const TV_AUTO = 'input_boolean.tv_photos_when_idle';
 
 const IMAGE = /\.(jpe?g|png|webp|gif)$/i;
 const THUMB = /\.thumb\.jpg$/i;
+const TVCOPY = /\.tv\.jpg$/i;
+const isCopy = (name: string) => THUMB.test(name) || TVCOPY.test(name);
 
 // --- Store --------------------------------------------------------------------------------
 type State = { photos: Photo[] | null; error: string; busy: string };
@@ -64,9 +68,13 @@ export function refreshPhotos(force = false): Promise<void> {
         .filter((c: any) => !c.can_expand && IMAGE.test(c.title || c.media_content_id))
         .map((c: any) => ({ id: c.media_content_id, name: c.title || c.media_content_id.split('/').pop() }));
       const thumbs = new Map(files.filter(f => THUMB.test(f.name)).map(f => [f.name.replace(THUMB, ''), f.id]));
+      const tvs = new Map(files.filter(f => TVCOPY.test(f.name)).map(f => [f.name.replace(TVCOPY, ''), f.name]));
       const photos = files
-        .filter(f => !THUMB.test(f.name))
-        .map(f => ({ ...f, thumbId: thumbs.get(f.name.replace(/\.[^.]+$/, '')), taken: dateFromName(f.name) }))
+        .filter(f => !isCopy(f.name))
+        .map(f => {
+          const base = f.name.replace(/\.[^.]+$/, '');
+          return { ...f, thumbId: thumbs.get(base), tvName: tvs.get(base), taken: dateFromName(f.name) };
+        })
         .sort((a, b) => (b.taken?.getTime() || 0) - (a.taken?.getTime() || 0) || b.name.localeCompare(a.name));
       loadedAt = Date.now();
       setState({ photos, error: '' });
@@ -84,7 +92,8 @@ export function refreshPhotos(force = false): Promise<void> {
 const syncTvList = (photos: Photo[]) => {
   const h = hassStore.get();
   if (!h || !h.states[TV_LIST]) return;
-  const want = photos.length ? photos.map(p => p.name) : ['none'];
+  // The TV gets the screen-shaped copy where there is one.
+  const want = photos.length ? photos.map(p => p.tvName || p.name) : ['none'];
   const have: string[] = h.states[TV_LIST].attributes.options || [];
   if (want.length === have.length && want.every((n, i) => n === have[i])) return;
   h.callService('input_select', 'set_options', { options: want }, { entity_id: TV_LIST }).catch(() => {});
@@ -143,31 +152,58 @@ async function exifDate(file: File): Promise<Date | undefined> {
   return undefined;
 }
 
-/** Shrink a picture to at most `max` pixels on its long side, as a JPEG. */
-async function shrink(file: File, max: number, quality: number): Promise<Blob> {
-  let source: CanvasImageSource & { width: number; height: number };
+type Source = CanvasImageSource & { width: number; height: number };
+
+/** Open a picture the right way up. */
+async function openImage(file: Blob, label = 'the photo'): Promise<Source> {
   try {
-    source = await createImageBitmap(file, { imageOrientation: 'from-image' } as any);
+    return await createImageBitmap(file, { imageOrientation: 'from-image' } as any);
   } catch {
     const url = URL.createObjectURL(file);
     try {
-      source = await new Promise<HTMLImageElement>((resolve, reject) => {
+      return await new Promise<HTMLImageElement>((resolve, reject) => {
         const img = new Image();
         img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error(`Couldn't open ${file.name}`));
+        img.onerror = () => reject(new Error(`Couldn't open ${label}`));
         img.src = url;
       });
     } finally { setTimeout(() => URL.revokeObjectURL(url), 1000); }
   }
-  const w = (source as any).naturalWidth || source.width;
-  const h = (source as any).naturalHeight || source.height;
+}
+
+const size = (src: Source) => ({ w: (src as any).naturalWidth || src.width, h: (src as any).naturalHeight || src.height });
+const toJpeg = (canvas: HTMLCanvasElement, quality: number) =>
+  new Promise<Blob>((resolve, reject) => canvas.toBlob(b => (b ? resolve(b) : reject(new Error('Couldn\'t save the photo'))), 'image/jpeg', quality));
+
+/** Shrink a picture to at most `max` pixels on its long side, as a JPEG. */
+async function shrink(src: Source, max: number, quality: number): Promise<Blob> {
+  const { w, h } = size(src);
   const scale = Math.min(1, max / Math.max(w, h));
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(w * scale);
   canvas.height = Math.round(h * scale);
+  canvas.getContext('2d')!.drawImage(src, 0, 0, canvas.width, canvas.height);
+  return toJpeg(canvas, quality);
+}
+
+/** How far down a tall photo the TV crop sits: 0 keeps the very top, 0.5 is the middle.
+ *  Mostly cutting off the bottom keeps heads in the picture. */
+const TV_CROP_FROM_TOP = 0.2;
+
+/** Crop a picture to fill a 16:9 TV (1920×1080): extra height comes mostly off the bottom,
+ *  extra width evenly off both sides. */
+export async function tvCrop(src: Source): Promise<Blob> {
+  const W = 1920, H = 1080;
+  const { w, h } = size(src);
+  let sx = 0, sy = 0, sw = w, sh = h;
+  if (w / h > W / H) { sw = h * (W / H); sx = (w - sw) / 2; }
+  else { sh = w * (H / W); sy = (h - sh) * TV_CROP_FROM_TOP; }
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d')!;
-  ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
-  return new Promise((resolve, reject) => canvas.toBlob(b => (b ? resolve(b) : reject(new Error('Couldn\'t shrink the photo'))), 'image/jpeg', quality));
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(src, sx, sy, sw, sh, 0, 0, W, H);
+  return toJpeg(canvas, 0.85);
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -198,10 +234,10 @@ export async function addPhotos(files: File[]): Promise<{ added: number; failed:
     try {
       const taken = (await exifDate(file)) || new Date(file.lastModified || Date.now());
       const base = `${stamp(taken)}_${Math.random().toString(36).slice(2, 6)}`;
-      const big = await shrink(file, 2560, 0.85);
-      const small = await shrink(file, 480, 0.75);
-      await upload(big, `${base}.jpg`);
-      await upload(small, `${base}.thumb.jpg`);
+      const src = await openImage(file, file.name);
+      await upload(await shrink(src, 2560, 0.85), `${base}.jpg`);
+      await upload(await shrink(src, 480, 0.75), `${base}.thumb.jpg`);
+      await upload(await tvCrop(src), `${base}.tv.jpg`);
       added++;
     } catch (e: any) {
       failed.push(`${file.name}: ${e?.message || 'failed'}`);
@@ -219,10 +255,30 @@ export async function removePhoto(p: Photo) {
   try {
     await h.callWS({ type: 'media_source/local_source/remove', media_content_id: p.id });
     if (p.thumbId) await h.callWS({ type: 'media_source/local_source/remove', media_content_id: p.thumbId }).catch(() => {});
+    if (p.tvName) await h.callWS({ type: 'media_source/local_source/remove', media_content_id: `media-source://media_source/local/${p.tvName}` }).catch(() => {});
   } finally {
     setState({ busy: '' });
   }
   await refreshPhotos(true);
+}
+
+/** Make TV-shaped copies of photos that don't have one (added before this existed, or from
+ *  somewhere other than Homedash). */
+export async function makeTvCopies(): Promise<{ made: number; failed: number }> {
+  await refreshPhotos(true);
+  const todo = (state.photos || []).filter(p => !p.tvName);
+  let made = 0, failed = 0;
+  for (let i = 0; i < todo.length; i++) {
+    setState({ busy: `Fitting photos to the TV: ${i + 1} of ${todo.length}…` });
+    try {
+      const blob = await (await fetch(await photoUrl(todo[i].id))).blob();
+      await upload(await tvCrop(await openImage(blob)), `${todo[i].name.replace(/\.[^.]+$/, '')}.tv.jpg`);
+      made++;
+    } catch { failed++; }
+  }
+  setState({ busy: '' });
+  await refreshPhotos(true);
+  return { made, failed };
 }
 
 /** "March 2024" for a caption. */

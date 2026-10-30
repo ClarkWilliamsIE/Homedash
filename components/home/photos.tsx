@@ -9,7 +9,7 @@ import { useSettings } from '../../lib/settings';
 import { useTimers } from '../../lib/timers';
 import { useWeather } from '../../lib/useWeather';
 import {
-  Photo, TV_AUTO, TV_SCRIPT, TV_STOP, addPhotos, photoCaption, photoUrl, refreshPhotos, removePhoto, shuffled, usePhotos,
+  Photo, TV_AUTO, TV_SCRIPT, TV_STOP, addPhotos, makeTvCopies, photoCaption, photoUrl, refreshPhotos, removePhoto, shuffled, usePhotos,
 } from '../../lib/photos';
 import { Panel } from '../ui';
 import { Card, Switch } from './controls';
@@ -42,6 +42,8 @@ export const PhotoImg: React.FC<{ photo?: Photo; thumb?: boolean; fit?: 'cover' 
   }, [photo?.id, thumb]);
   return src ? (
     <img src={src} alt="" draggable={false} onLoad={() => setShown(true)}
+      // When a photo is cropped to fit, keep the top (heads) and lose the bottom.
+      style={fit === 'cover' ? { objectPosition: '50% 20%' } : undefined}
       className={`w-full h-full ${fit === 'cover' ? 'object-cover' : 'object-contain'} transition-opacity duration-700 ${shown ? 'opacity-100' : 'opacity-0'} ${className}`} />
   ) : null;
 };
@@ -302,6 +304,20 @@ export const PhotoSettings: React.FC<{ onChangeFrame: (patch: Partial<{ enabled:
           </div>
         )}
       </div>
+
+      {tv.available && photos && photos.some(p => !p.tvName) && (
+        <div className="mt-4 p-3 rounded-2xl bg-amber-50 flex flex-wrap items-center gap-3">
+          <p className="flex-1 min-w-[14rem] text-sm font-semibold text-amber-900">
+            {photos.filter(p => !p.tvName).length} photos aren't cropped to fit the TV yet, so they show with black bars.
+          </p>
+          <button disabled={!!busy} onClick={async () => {
+            const r = await makeTvCopies().catch(e => { setMsg(e?.message || 'Couldn\'t do it'); return null; });
+            if (r) setMsg(r.failed ? `Fitted ${r.made}. ${r.failed} didn't work.` : `Fitted ${r.made} photos to the TV`);
+          }} className="h-10 px-4 rounded-xl bg-amber-600 text-white text-sm font-semibold disabled:opacity-60">
+            {busy && busy.startsWith('Fitting') ? busy : 'Fit them to the TV'}
+          </button>
+        </div>
+      )}
 
       {photos && photos.length > 0 && (
         <div className="mt-5">
