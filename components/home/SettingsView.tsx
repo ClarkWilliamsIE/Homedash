@@ -15,6 +15,7 @@ import { callDinner } from '../../lib/announce';
 import { CalendarInfo } from '../../lib/calendar';
 import { setFullscreen, useFullscreen } from '../../lib/kiosk';
 import { HomeIcons } from './icons';
+import { PhotoSettings } from './photos';
 
 export interface CalendarStatus {
   status: 'loading' | 'ok' | 'no-access' | 'error';
@@ -484,6 +485,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onChange, calenda
           </label>
         </div>
       </Card>
+
+      {/* FAMILY PHOTOS */}
+      <PhotoSettings onChangeFrame={patch => update({ frame: { ...settings.frame, ...patch } })} />
 
       {/* THIS DEVICE */}
       <Card title="This device">

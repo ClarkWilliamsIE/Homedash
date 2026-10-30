@@ -54,6 +54,8 @@ const makeHass = (): Hass => {
     callWS: (msg: Record<string, any>) => send(msg),
     callService: (domain, service, data, target) =>
       send({ type: 'call_service', domain, service, service_data: data || {}, ...(target ? { target } : {}) }),
+    fetchWithAuth: (path: string, init: RequestInit = {}) =>
+      fetch(`${base}${path}`, { ...init, headers: { ...(init.headers || {}), Authorization: `Bearer ${creds!.token}` } }),
     callApi: async (method: string, path: string, body?: any) => {
       const r = await fetch(`${base}/api/${path}`, {
         method,

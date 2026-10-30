@@ -37,5 +37,8 @@ export const HomeIcons = {
   Calendar: (p: P) => <S {...p}><rect width="18" height="18" x="3" y="4" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></S>,
   Expand: (p: P) => <S {...p}><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></S>,
   Shuffle: (p: P) => <S {...p}><path d="M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l6.1-8.6c.7-1.1 2-1.7 3.3-1.7H22" /><path d="m18 2 4 4-4 4" /><path d="M2 6h1.9c1.5 0 2.9.9 3.6 2.2" /><path d="M22 18h-5.9c-1.3 0-2.6-.7-3.3-1.8l-.5-.8" /><path d="m18 14 4 4-4 4" /></S>,
+  Image: (p: P) => <S {...p}><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21" /></S>,
+  Tv: (p: P) => <S {...p}><rect x="2" y="7" width="20" height="15" rx="2" /><path d="m17 2-5 5-5-5" /></S>,
+  Close: (p: P) => <S {...p}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></S>,
   Party: (p: P) => <S {...p}><path d="M5.8 11.3 2 22l10.7-3.8" /><path d="M4 3h.01M22 8h.01M15 2h.01M22 20h.01" /><path d="m22 2-2.24.75a2.9 2.9 0 0 0-1.96 3.12c.1.86-.57 1.63-1.45 1.63h-.38c-.86 0-1.6.6-1.76 1.44L14 10" /><path d="M11 13a8 8 0 0 0-5.2-1.7" /><path d="M11 13c-.6-2.4-1.8-4.1-3.8-5" /></S>,
 };

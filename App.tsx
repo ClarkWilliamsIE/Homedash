@@ -14,6 +14,7 @@ import MusicView from './components/home/MusicView';
 import SettingsView, { CalendarStatus } from './components/home/SettingsView';
 import TimerTray from './components/home/TimerTray';
 import NightMode from './components/home/NightMode';
+import { PhotoFrame } from './components/home/photos';
 import { loadCalendar } from './lib/calendar';
 import { HomeIcons } from './components/home/icons';
 import { Icon, Sheet, useIsPhone } from './components/ui';
@@ -845,6 +846,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
       )}
 
       <TimerTray />
+      {embedded && isHome && <PhotoFrame weeklyPlan={weeklyPlan} />}
       {embedded && isHome && <NightMode events={calendarEvents} weeklyPlan={weeklyPlan} />}
     </div>
   );

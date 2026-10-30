@@ -58,6 +58,12 @@ export interface NightSettings {
   idleMinutes: number;
 }
 
+export interface FrameSettings {
+  /** Turn the kitchen iPad into a photo frame when nobody's using it (daytime; night mode wins). */
+  enabled: boolean;
+  idleMinutes: number;
+}
+
 export interface HomeSettings {
   version: 1;
   moods: Mood[];
@@ -68,6 +74,7 @@ export interface HomeSettings {
   dinner: DinnerSettings;
   timers: TimerSettings;
   night: NightSettings;
+  frame: FrameSettings;
   /** Google Calendar ids to show; null = the calendars ticked in Google Calendar itself */
   calendars: string[] | null;
 }
@@ -90,6 +97,7 @@ export const DEFAULT_SETTINGS: HomeSettings = {
   dinner: { message: "Dinner's ready! Come and eat.", volume: 55, flashLights: ['light.kids_lights'] },
   timers: { speaker: 'media_player.kitchen' },
   night: { enabled: true, start: '21:30', end: '06:30', idleMinutes: 2 },
+  frame: { enabled: true, idleMinutes: 5 },
   calendars: null,
 };
 
@@ -103,6 +111,7 @@ export const withDefaults = (s?: Partial<HomeSettings> | null): HomeSettings => 
   dinner: { ...DEFAULT_SETTINGS.dinner, ...(s?.dinner || {}) },
   timers: { ...DEFAULT_SETTINGS.timers, ...(s?.timers || {}) },
   night: { ...DEFAULT_SETTINGS.night, ...(s?.night || {}) },
+  frame: { ...DEFAULT_SETTINGS.frame, ...(s?.frame || {}) },
   calendars: s?.calendars ?? null,
 });
 
