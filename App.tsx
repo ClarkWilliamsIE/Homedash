@@ -25,6 +25,8 @@ import { HomeSettings, settingsStore, withDefaults } from './lib/settings';
 import { recordItem, setItemCatalog } from './lib/items';
 import { nudgeRemoteHass, startRemoteHass } from './lib/haRemote';
 import { stampMeal, tidyPlan, isoDay } from './lib/weekDates';
+import { TvProgress, bindTvProgress, startTvTracker } from './lib/tv';
+import TvView from './components/home/TvView';
 
 const INITIAL_PLAN: WeeklyPlan = {
   Sunday: [], Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: []
@@ -117,6 +119,9 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
     } catch { /* storage blocked */ }
   };
   useEffect(() => { connectHouse(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Keep track of how far through any TV show playing on the living room TV.
+  const houseConnected = useIsHome();
+  useEffect(() => (houseConnected ? startTvTracker() : undefined), [houseConnected]);
   useEffect(() => {
     if (embedded) return;
     const again = () => { if (!document.hidden) nudgeRemoteHass(); };
@@ -151,6 +156,8 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   const [clearedIngredients, setClearedIngredients] = useState<string[]>(cached?.state.clearedIngredients || []);
   const [checkedIngredients, setCheckedIngredients] = useState<string[]>(cached?.state.checkedIngredients || []);
   const [pantryHidden, setPantryHidden] = useState<string[]>(cached?.state.pantryHidden || []);
+  const [tvProgress, setTvProgress] = useState<TvProgress[]>(cached?.state.tvProgress || []);
+  useEffect(() => { bindTvProgress(tvProgress, setTvProgress); }, [tvProgress]);
   const [settings, setSettings] = useState<HomeSettings | null>(cached?.state.settings ?? null);
 
   // Everything the "add an item" boxes can suggest.
@@ -189,7 +196,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   const lastSynced = useRef<SyncState | null>(cached?.base || null);
   const lastSyncedStr = useRef(cached?.base ? JSON.stringify(cached.base) : '');
   const isSaving = useRef(false);
-  const currentState = (): SyncState => pack({ weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, pantryHidden, settings });
+  const currentState = (): SyncState => pack({ weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, pantryHidden, tvProgress, settings });
   const stateRef = useRef<SyncState>(currentState());
   stateRef.current = currentState();
   const recipesRef = useRef(recipes);
@@ -203,6 +210,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
     setClearedIngredients(s.clearedIngredients);
     setCheckedIngredients(s.checkedIngredients);
     setPantryHidden(s.pantryHidden);
+    setTvProgress(s.tvProgress);
     setSettings(s.settings);
   };
 
@@ -214,7 +222,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   // Keep the offline copy up to date.
   useEffect(() => {
     writeCache({ recipes, state: stateRef.current, base: lastSynced.current });
-  }, [recipes, weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, pantryHidden, settings, isSyncing]);
+  }, [recipes, weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, pantryHidden, tvProgress, settings, isSyncing]);
 
   // SILENT LOGIN: sends the PIN to the backend to get the token
   const loginSilently = useCallback(async (pinToTry?: string) => {
@@ -402,7 +410,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
     saveTimeout.current = setTimeout(() => saveNow(), 1500);
     return () => clearTimeout(saveTimeout.current);
-  }, [weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, pantryHidden, settings, auth.token, isTokenExpired, saveNow]);
+  }, [weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, pantryHidden, tvProgress, settings, auth.token, isTokenExpired, saveNow]);
 
   // Back online: sign in if we couldn't before, and send anything ticked while offline.
   useEffect(() => {
@@ -677,6 +685,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   const houseTabs = isHome ? [
     { id: View.Lights, label: 'Lights', icon: <HomeIcons.Bulb className="w-6 h-6" /> },
     { id: View.Music, label: 'Music', icon: <HomeIcons.Music className="w-6 h-6" /> },
+    { id: View.Tv, label: 'TV', icon: <HomeIcons.Tv className="w-6 h-6" /> },
     { id: View.Settings, label: 'Settings', icon: <HomeIcons.Gear className="w-6 h-6" /> },
   ] : [];
   const unsaved = hasUnsaved();
@@ -740,6 +749,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
       )}
       {currentView === View.Lights && isHome && <LightsView />}
       {currentView === View.Music && isHome && <MusicView />}
+      {currentView === View.Tv && isHome && <TvView />}
       {currentView === View.Settings && isHome && <SettingsView settings={withDefaults(settings)} onChange={setSettings} calendar={calendarStatus} />}
       {currentView === View.Dashboard && (
         <WeekPlanner

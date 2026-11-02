@@ -7,6 +7,7 @@
 
 import { Recipe, WeeklyPlan, FamilyNote } from '../types';
 import type { HomeSettings } from './settings';
+import type { TvProgress } from './tv';
 
 export interface ManualItem {
   id: string;
@@ -23,6 +24,8 @@ export interface SyncState {
   checkedIngredients: string[];
   /** Pantry items tidied out of the pantry list (still kept off the shopping list). */
   pantryHidden: string[];
+  /** TV episodes watched / where you got to (Jellyfin, played on the living room TV). */
+  tvProgress: TvProgress[];
   /** Settings screen (music moods, rooms, Start cooking). null until someone changes a setting. */
   settings: HomeSettings | null;
 }
@@ -38,6 +41,7 @@ export const pack = (s: Partial<SyncState>): SyncState => ({
   clearedIngredients: s.clearedIngredients || [],
   checkedIngredients: s.checkedIngredients || [],
   pantryHidden: s.pantryHidden || [],
+  tvProgress: s.tvProgress || [],
   settings: s.settings ?? null,
 });
 
@@ -84,6 +88,12 @@ export function mergeState(baseIn: SyncState, localIn: SyncState, remoteIn: Sync
     clearedIngredients: mergeList(base.clearedIngredients, local.clearedIngredients, remote.clearedIngredients, self),
     checkedIngredients: mergeList(base.checkedIngredients, local.checkedIngredients, remote.checkedIngredients, self),
     pantryHidden: mergeList(base.pantryHidden, local.pantryHidden, remote.pantryHidden, self),
+    // Two devices updated the same episode: the more recent update wins.
+    tvProgress: mergeList(base.tvProgress, local.tvProgress, remote.tvProgress, byId)
+      .map(p => {
+        const l = local.tvProgress.find(x => x.id === p.id), r = remote.tvProgress.find(x => x.id === p.id);
+        return l && r ? (l.at >= r.at ? l : r) : p;
+      }),
     // Settings are saved as a whole: if this device changed them, its version wins.
     settings: same(local.settings, base.settings) ? remote.settings : local.settings,
   });
