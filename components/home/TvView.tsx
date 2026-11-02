@@ -12,7 +12,7 @@ import {
 import { Panel } from '../ui';
 import { MoreLink } from './controls';
 import { HomeIcons } from './icons';
-import NewShowSearch from './NewShowSearch';
+import NewShowSearch, { FindKind } from './NewShowSearch';
 
 // --- Small pieces ---------------------------------------------------------------------------
 
@@ -257,7 +257,7 @@ const TvView: React.FC = () => {
   const [error, setError] = useState('');
   const [open, setOpen] = useState<MediaNode | null>(null);
   const [filter, setFilter] = useState('');
-  const [finding, setFinding] = useState(false);
+  const [finding, setFinding] = useState<FindKind | null>(null);
   const progress = useTvProgress();
   const resume = continueWatching(progress).slice(0, 4);
 
@@ -277,13 +277,18 @@ const TvView: React.FC = () => {
                   className="h-11 w-64 max-w-full bg-white border border-slate-200 rounded-2xl px-4 outline-none focus:ring-2 focus:ring-indigo-200" />
               )}
               {!finding && (
-                <button onClick={() => setFinding(true)} className="h-11 px-4 rounded-2xl bg-indigo-700 text-white font-semibold flex items-center gap-1.5 shadow-sm">
-                  <span className="text-lg leading-none">+</span> Get a new show
-                </button>
+                <>
+                  <button onClick={() => setFinding('show')} className="h-11 px-4 rounded-2xl bg-indigo-700 text-white font-semibold flex items-center gap-1.5 shadow-sm">
+                    <span className="text-lg leading-none">+</span> Get a new show
+                  </button>
+                  <button onClick={() => setFinding('movie')} className="h-11 px-4 rounded-2xl bg-white border border-slate-200 text-indigo-800 font-semibold flex items-center gap-1.5 shadow-sm">
+                    <span className="text-lg leading-none">+</span> Get a movie
+                  </button>
+                </>
               )}
             </div>
           </div>
-          {finding && <NewShowSearch onClose={() => setFinding(false)} />}
+          {finding && <NewShowSearch kind={finding} onKind={setFinding} onClose={() => setFinding(null)} />}
           {resume.length > 0 && (
             <section>
               <h2 className="font-display text-xl text-slate-900 mb-3">Continue watching</h2>
