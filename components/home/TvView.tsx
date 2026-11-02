@@ -7,7 +7,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useEntity } from '../../lib/hass';
 import {
   MediaNode, TV, TvProgress, allTitles, browse, continueWatching, fmtMins, livePosition, playOnTv,
-  playingItemId, progressFor, setWatched, tvControl, tvSeekBy, useTvProgress,
+  pictureUrl, playingItemId, progressFor, setWatched, tvControl, tvSeekBy, useTvProgress,
 } from '../../lib/tv';
 import { Panel } from '../ui';
 import { MoreLink } from './controls';
@@ -15,8 +15,15 @@ import { HomeIcons } from './icons';
 
 // --- Small pieces ---------------------------------------------------------------------------
 
-const Poster: React.FC<{ src?: string; title: string; wide?: boolean; className?: string }> = ({ src, title, wide, className = '' }) => {
+const Poster: React.FC<{ src?: string; title: string; wide?: boolean; className?: string }> = ({ src: thumb, title, wide, className = '' }) => {
   const [failed, setFailed] = useState(false);
+  const [src, setSrc] = useState<string>();
+  useEffect(() => {
+    let live = true;
+    setFailed(false);
+    pictureUrl(thumb).then(u => { if (live) setSrc(u); });
+    return () => { live = false; };
+  }, [thumb]);
   return (
     <div className={`relative overflow-hidden bg-slate-200 ${wide ? 'aspect-video' : 'aspect-[2/3]'} ${className}`}>
       {src && !failed

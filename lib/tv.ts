@@ -65,6 +65,45 @@ export async function allTitles(): Promise<MediaNode[]> {
 
 export const refreshLibrary = () => cache.clear();
 
+// --- Pictures -------------------------------------------------------------------------------
+// Jellyfin's own address often isn't reachable from a computer or phone (and is plain http), so
+// inside Home Assistant the posters are fetched through Home Assistant's add-on link instead.
+let ingress: { base: string; until: number } | null = null;
+let ingressLoading: Promise<string | null> | null = null;
+
+async function jellyfinIngress(): Promise<string | null> {
+  const hass = hassStore.get();
+  if (!hass || hass.remote) return null; // only works on Home Assistant's own page
+  if (ingress && ingress.until > Date.now()) return ingress.base;
+  if (ingressLoading) return ingressLoading;
+  ingressLoading = (async () => {
+    try {
+      const sup = (endpoint: string, method = 'get') => hass.callWS({ type: 'supervisor/api', endpoint, method });
+      const addons = (await sup('/addons')).addons || [];
+      const jf = addons.find((a: any) => /jellyfin/i.test(a.slug) && a.state === 'started');
+      if (!jf) return null;
+      const info = await sup(`/addons/${jf.slug}/info`);
+      const session = await sup('/ingress/session', 'post');
+      document.cookie = `ingress_session=${session.session};path=/api/hassio_ingress/;SameSite=Strict`;
+      ingress = { base: info.ingress_url, until: Date.now() + 10 * 60 * 1000 };
+      return ingress.base;
+    } catch {
+      return null;
+    } finally {
+      ingressLoading = null;
+    }
+  })();
+  return ingressLoading;
+}
+
+/** A picture address the page can actually load. */
+export async function pictureUrl(thumb?: string): Promise<string | undefined> {
+  if (!thumb) return undefined;
+  const base = await jellyfinIngress();
+  if (!base) return thumb;
+  try { const u = new URL(thumb); return `${base}${u.pathname.slice(1)}${u.search}`; } catch { return thumb; }
+}
+
 // --- Watched / where you got to ------------------------------------------------------------
 // The list lives in App (so it syncs with the meal plan etc.); this mirrors it for components.
 let progress: TvProgress[] = [];
