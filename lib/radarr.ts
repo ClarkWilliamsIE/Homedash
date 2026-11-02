@@ -46,10 +46,11 @@ export async function searchMovies(term: string): Promise<MovieResult[]> {
   });
 }
 
-/** Add a film to Radarr and start looking for it straight away. */
+/** Add a film to Radarr and start looking for it straight away. Uses the HD-1080p profile (set up in
+ *  Radarr as 1080p or 720p, no 4K, remuxes or disc copies, about 6 GB max for a 2-hour film). */
 export async function addMovie(movie: MovieResult) {
   const library = await arrGet('radarr', 'movie').catch(() => []);
-  const [qualityProfileId, rootFolderPath] = await Promise.all([pickProfile('radarr', library), rootFolder('radarr')]);
+  const [qualityProfileId, rootFolderPath] = await Promise.all([pickProfile('radarr', library, 'HD-1080p'), rootFolder('radarr')]);
   return arrPost('radarr', 'movie', {
     ...movie.raw,
     qualityProfileId,

@@ -49,10 +49,13 @@ export const arrPost = (app: ArrApp, path: string, body: any) => call(app, 'post
 export const posterOf = (s: any): string | undefined =>
   s.remotePoster || (s.images || []).find((i: any) => i.coverType === 'poster')?.remoteUrl || undefined;
 
-/** The quality profile the family already picks most, else the app's first one. */
-export async function pickProfile(app: ArrApp, library: any[]) {
+/** The quality profile to use: `prefer` (by name) if it exists, else the one the family already
+ *  picks most, else the app's first one. */
+export async function pickProfile(app: ArrApp, library: any[], prefer?: string) {
   const profiles = await arrGet(app, 'qualityprofile');
   if (!profiles?.length) throw new Error(`${NAMES[app]} has no quality profiles.`);
+  const named = prefer && profiles.find((p: any) => p.name.toLowerCase() === prefer.toLowerCase());
+  if (named) return named.id;
   const counts = new Map<number, number>();
   (library || []).forEach((s: any) => counts.set(s.qualityProfileId, (counts.get(s.qualityProfileId) || 0) + 1));
   const used = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
