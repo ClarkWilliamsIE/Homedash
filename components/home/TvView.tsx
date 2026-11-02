@@ -12,6 +12,7 @@ import {
 import { Panel } from '../ui';
 import { MoreLink } from './controls';
 import { HomeIcons } from './icons';
+import NewShowSearch from './NewShowSearch';
 
 // --- Small pieces ---------------------------------------------------------------------------
 
@@ -256,6 +257,7 @@ const TvView: React.FC = () => {
   const [error, setError] = useState('');
   const [open, setOpen] = useState<MediaNode | null>(null);
   const [filter, setFilter] = useState('');
+  const [finding, setFinding] = useState(false);
   const progress = useTvProgress();
   const resume = continueWatching(progress).slice(0, 4);
 
@@ -269,11 +271,19 @@ const TvView: React.FC = () => {
         <>
           <div className="flex items-end justify-between gap-4 flex-wrap">
             <h1 className="font-display text-4xl text-slate-900">TV</h1>
-            {(titles?.length || 0) > 8 && (
-              <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Find a show…"
-                className="h-11 w-64 max-w-full bg-white border border-slate-200 rounded-2xl px-4 outline-none focus:ring-2 focus:ring-indigo-200" />
-            )}
+            <div className="flex items-center gap-2 flex-wrap">
+              {(titles?.length || 0) > 8 && (
+                <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Find a show…"
+                  className="h-11 w-64 max-w-full bg-white border border-slate-200 rounded-2xl px-4 outline-none focus:ring-2 focus:ring-indigo-200" />
+              )}
+              {!finding && (
+                <button onClick={() => setFinding(true)} className="h-11 px-4 rounded-2xl bg-indigo-700 text-white font-semibold flex items-center gap-1.5 shadow-sm">
+                  <span className="text-lg leading-none">+</span> Get a new show
+                </button>
+              )}
+            </div>
           </div>
+          {finding && <NewShowSearch onClose={() => setFinding(false)} />}
           {resume.length > 0 && (
             <section>
               <h2 className="font-display text-xl text-slate-900 mb-3">Continue watching</h2>
