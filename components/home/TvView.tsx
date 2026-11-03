@@ -1,12 +1,12 @@
 // components/home/TvView.tsx
 // TV shows from Jellyfin: a card on the home screen and a full page to pick a show, season and
-// episode and play it on the living room TV. Episodes get a watched tick and a progress bar,
+// episode and play it on the living room TV (in the Jellyfin app). Episodes get a watched tick and a progress bar,
 // and "Continue watching" picks up where you left off.
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { useEntity } from '../../lib/hass';
+import { useEntities, useEntity } from '../../lib/hass';
 import {
-  MediaNode, TV, TvProgress, allTitles, browse, continueWatching, fmtMins, livePosition, playOnTv,
+  CAST_TV, MediaNode, TvProgress, currentTv, loadJellyfinPlayers, useJellyfinPlayers, allTitles, browse, continueWatching, fmtMins, livePosition, playOnTv,
   pictureUrl, playingItemId, progressFor, setWatched, tvControl, tvSeekBy, useTvProgress,
 } from '../../lib/tv';
 import { Panel } from '../ui';
@@ -46,7 +46,11 @@ const Tick: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
 
 /** What's on the TV now (a Jellyfin episode), with simple controls. */
 const useNowPlaying = () => {
-  const s = useEntity(TV);
+  // Watch the Jellyfin app's player(s) and the Chromecast; show whichever is playing.
+  const players = useJellyfinPlayers();
+  useEffect(() => { loadJellyfinPlayers(); }, []);
+  useEntities([...players, CAST_TV]);
+  const s = useEntity(currentTv());
   const progress = useTvProgress();
   const [, tick] = useState(0);
   useEffect(() => { const t = setInterval(() => tick(n => n + 1), 5000); return () => clearInterval(t); }, []);

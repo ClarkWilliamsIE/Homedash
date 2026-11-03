@@ -1,13 +1,20 @@
 // lib/tv.ts
-// TV shows from Jellyfin, through Home Assistant: browse the library, play an episode on the
-// living room TV (Chromecast), and keep track of what's been watched and where you got to.
+// TV shows from Jellyfin, through Home Assistant: browse the library, play an episode or film on
+// the living room TV (in the Jellyfin app, or the Chromecast as a fallback), and keep track of
+// what's been watched and where you got to.
 // Progress is kept in the family's synced state, so every device shows the same ticks.
 
 import { useSyncExternalStore } from 'react';
 import { hassStore } from './hass';
 
-export const TV = 'media_player.living_room_tv';
+/** The TV's Chromecast (used only when the Jellyfin app can't be reached). */
+export const CAST_TV = 'media_player.living_room_tv';
+/** The TV itself (Google TV remote): turns it on and opens apps. */
 export const TV_REMOTE = 'media_player.living_room_tv_2';
+/** Pin the Jellyfin app's media player here if the automatic pick gets it wrong,
+ *  e.g. 'media_player.living_room_tv_jellyfin'. Leave empty to find it automatically. */
+const JELLYFIN_TV_OVERRIDE = '';
+const JELLYFIN_APP = 'org.jellyfin.androidtv';
 const ROOT = 'media-source://jellyfin';
 
 export interface MediaNode {
@@ -134,13 +141,75 @@ export const continueWatching = (list: TvProgress[]) =>
   list.filter(p => !p.done && p.pos > 60 && p.dur > 0 && p.pos < p.dur * 0.92).sort((a, b) => b.at - a.at);
 
 // --- Playing on the TV ---------------------------------------------------------------------
+// Films and episodes play in the Jellyfin app on the TV: it plays every file (the Chromecast
+// can't play the surround sound most films have) and buffers far less. Home Assistant's Jellyfin
+// integration gives the app a media player while it's open; if it isn't open, Homedash opens it
+// with the TV's remote and waits for it. The Chromecast is only the fallback.
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-/** The Jellyfin item playing on the TV right now, if any. */
+let jfPlayers: string[] = [];
+let jfLoadedAt = 0;
+const jfListeners = new Set<() => void>();
+
+/** Every Jellyfin media player Home Assistant knows (one per device that has used Jellyfin). */
+export async function loadJellyfinPlayers(force = false): Promise<string[]> {
+  const hass = hassStore.get();
+  if (!hass || (!force && Date.now() - jfLoadedAt < 60_000)) return jfPlayers;
+  jfLoadedAt = Date.now();
+  try {
+    const r = await hass.callWS({ type: 'entity_registry/list_for_display' });
+    const list: string[] = (r?.entities || [])
+      .filter((e: any) => e.pl === 'jellyfin' && String(e.ei).startsWith('media_player.'))
+      .map((e: any) => e.ei);
+    if (list.join() !== jfPlayers.join()) { jfPlayers = list; jfListeners.forEach(l => l()); }
+  } catch { /* keep what we had */ }
+  return jfPlayers;
+}
+
+export const useJellyfinPlayers = () =>
+  useSyncExternalStore((l: () => void) => { jfListeners.add(l); return () => { jfListeners.delete(l); }; }, () => jfPlayers);
+
+const isTvLike = (text: string) => /\btv\b|android|google|shield|bravia|chromecast|living|lounge|family/i.test(text);
+const isBrowserOrPhone = (text: string) => /\bweb\b|\bchrome\b|firefox|safari|edge|opera|iphone|ipad|\bmac|windows|linux/i.test(text);
+
+/** The Jellyfin app on the TV, if Home Assistant can see it, and whether it's open right now. */
+export function jellyfinTv(): { id: string; ready: boolean } | null {
+  const states = hassStore.get()?.states || {};
+  const ids = JELLYFIN_TV_OVERRIDE ? [JELLYFIN_TV_OVERRIDE] : jfPlayers;
+  const found = ids.filter(id => states[id]).map(id => {
+    const label = `${id} ${states[id].attributes.friendly_name || ''}`;
+    return {
+      id,
+      ready: !['unavailable', 'unknown', 'off'].includes(states[id].state),
+      tv: !!JELLYFIN_TV_OVERRIDE || isTvLike(label),
+      other: isBrowserOrPhone(label),
+    };
+  });
+  const pick = found.find(x => x.tv && x.ready) || found.find(x => !x.other && x.ready) || found.find(x => x.tv) || found.find(x => !x.other);
+  return pick ? { id: pick.id, ready: pick.ready } : null;
+}
+
+/** The Jellyfin item playing on a player right now, if any. The Chromecast reports a stream
+ *  address (…/Videos/<id>/…); the Jellyfin app reports the item id itself. */
 export const playingItemId = (attrs: Record<string, any> | undefined) => {
-  const m = String(attrs?.media_content_id || '').match(/\/(?:Videos|Items)\/([0-9a-f]{32})\//i);
+  const raw = String(attrs?.media_content_id || '');
+  const m = raw.match(/\/(?:Videos|Items)\/([0-9a-f]{32})\//i) || raw.match(/^([0-9a-f]{32})$/i);
   return m ? m[1] : undefined;
 };
+
+const isBusy = (id?: string) => {
+  const s = id ? hassStore.get()?.states[id] : undefined;
+  return !!s && ['playing', 'paused', 'buffering'].includes(s.state) && !!playingItemId(s.attributes);
+};
+
+/** The player to show and control: whichever is playing something from Jellyfin (the app
+ *  first), else the Jellyfin app if it's open, else the Chromecast. */
+export function currentTv(): string {
+  const jf = jellyfinTv();
+  if (jf && isBusy(jf.id)) return jf.id;
+  if (isBusy(CAST_TV)) return CAST_TV;
+  return jf?.ready ? jf.id : CAST_TV;
+}
 
 /** Live position: Home Assistant only updates it now and then, so add the time since. */
 export const livePosition = (attrs: Record<string, any> | undefined, state?: string) => {
@@ -148,6 +217,37 @@ export const livePosition = (attrs: Record<string, any> | undefined, state?: str
   if (state !== 'playing' || !attrs?.media_position_updated_at) return pos;
   return pos + Math.max(0, (Date.now() - new Date(attrs.media_position_updated_at).getTime()) / 1000);
 };
+
+/** Open the Jellyfin app on the TV if it isn't already, and wait until Home Assistant sees it. */
+async function openJellyfinApp(): Promise<string | null> {
+  await loadJellyfinPlayers();
+  let jf = jellyfinTv();
+  if (jf?.ready) return jf.id;
+  const hass = hassStore.get();
+  if (!hass?.states[TV_REMOTE]) return null;
+  await hass.callService('media_player', 'play_media', { media_content_type: 'app', media_content_id: JELLYFIN_APP }, { entity_id: TV_REMOTE }).catch(() => {});
+  // Home Assistant checks Jellyfin every 10 seconds or so, so give it a little while.
+  for (let i = 0; i < 18; i++) {
+    await sleep(1500);
+    await loadJellyfinPlayers(i % 4 === 3);
+    jf = jellyfinTv();
+    if (jf?.ready) { await sleep(1500); return jf.id; }
+  }
+  return null;
+}
+
+async function seekWhenPlaying(player: string, resumeAt = 0) {
+  if (resumeAt <= 30) return;
+  const hass = hassStore.get();
+  // The TV takes a few seconds to load the file; jump once it's playing.
+  for (let i = 0; i < 40; i++) {
+    await sleep(1500);
+    if (hassStore.get()?.states[player]?.state === 'playing') {
+      await hass?.callService('media_player', 'media_seek', { seek_position: Math.max(0, resumeAt - 5) }, { entity_id: player }).catch(() => {});
+      break;
+    }
+  }
+}
 
 export async function playOnTv(node: MediaNode, meta: Partial<TvProgress>, opts: { resumeAt?: number } = {}) {
   const hass = hassStore.get();
@@ -161,32 +261,31 @@ export async function playOnTv(node: MediaNode, meta: Partial<TvProgress>, opts:
     await sleep(4000);
   }
   upsertProgress({ id: itemId(node.id), title: node.title, thumb: node.thumb, ...meta });
-  await call('media_player', 'play_media', { media_content_id: node.id, media_content_type: 'video' }, TV);
-  const resumeAt = opts.resumeAt || 0;
-  if (resumeAt > 30) {
-    // The TV takes a few seconds to load the file; jump once it's playing.
-    for (let i = 0; i < 40; i++) {
-      await sleep(1500);
-      if (hassStore.get()?.states[TV]?.state === 'playing') {
-        await call('media_player', 'media_seek', { seek_position: Math.max(0, resumeAt - 5) }, TV).catch(() => {});
-        break;
-      }
-    }
+
+  const jf = await openJellyfinApp();
+  if (jf) {
+    await call('media_player', 'play_media', { media_content_id: itemId(node.id), media_content_type: node.kind === 'movie' ? 'movie' : 'episode' }, jf);
+    await seekWhenPlaying(jf, opts.resumeAt);
+    return;
   }
+  // Fallback: the Chromecast. Most films won't play this way (it can't do their surround sound).
+  await call('media_player', 'play_media', { media_content_id: node.id, media_content_type: 'video' }, CAST_TV);
+  await seekWhenPlaying(CAST_TV, opts.resumeAt);
 }
 
-export const tvControl = (service: 'media_play_pause' | 'media_stop', ) =>
-  hassStore.get()?.callService('media_player', service, undefined, { entity_id: TV });
+export const tvControl = (service: 'media_play_pause' | 'media_stop') =>
+  hassStore.get()?.callService('media_player', service, undefined, { entity_id: currentTv() });
 
 export const tvSeekBy = (seconds: number) => {
   const h = hassStore.get();
-  const s = h?.states[TV];
+  const player = currentTv();
+  const s = h?.states[player];
   if (!h || !s) return;
   const to = Math.max(0, livePosition(s.attributes, s.state) + seconds);
-  return h.callService('media_player', 'media_seek', { seek_position: to }, { entity_id: TV });
+  return h.callService('media_player', 'media_seek', { seek_position: to }, { entity_id: player });
 };
 
-/** Record how far through the TV is, every so often while a Jellyfin episode plays.
+/** Record how far through the TV is, every so often while something from Jellyfin plays.
  *  Returns a stop function. Run it on any device; they all write the same numbers. */
 export function startTvTracker(): () => void {
   let lastSaved = 0;
@@ -194,7 +293,7 @@ export function startTvTracker(): () => void {
   let lastPos = 0;
   let lastDur = 0;
   const tick = () => {
-    const s = hassStore.get()?.states[TV];
+    const s = hassStore.get()?.states[currentTv()];
     const id = playingItemId(s?.attributes);
     if (id && s && (s.state === 'playing' || s.state === 'paused')) {
       const dur = Number(s.attributes.media_duration || 0);
