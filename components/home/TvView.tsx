@@ -3,14 +3,102 @@
 // the living room TV in the Jellyfin app; and get new ones (Sonarr / Radarr). Episodes get a watched tick and a progress bar,
 // and "Continue watching" picks up where you left off.
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useEntities, useEntity } from '../../lib/hass';
 import {
-  CAST_TV, MediaNode, TvProgress, canControl, currentTv, loadJellyfinPlayers, useJellyfinPlayers, useTvNotice, allTitles, browse, continueWatching, fmtMins, livePosition, playOnTv,
-  pictureUrl, playingItemId, progressFor, setWatched, tvControl, tvSeekBy, useTvProgress,
+  CAST_TV, MediaNode, TvProgress, canControl, currentTv, loadJellyfinPlayers, useJellyfinPlayers, useTvNotice, allTitles, browse, continueWatching, fmtMins, livePosition,
+  pictureUrl, playingItemId, progressFor, saveHereProgress, setWatched, streamHere, tvControl, tvSeekBy, useTvProgress,
 } from '../../lib/tv';
 import { HomeIcons } from './icons';
 import NewShowSearch, { FindKind } from './NewShowSearch';
+
+// --- Watching on this device ---------------------------------------------------------------
+// Tapping Play opens a full-screen player right here (phone, iPad or computer).
+
+type Here = { node: MediaNode; meta: Partial<TvProgress>; resumeAt?: number };
+let here: Here | null = null;
+const hereListeners = new Set<() => void>();
+const setHere = (h: Here | null) => { here = h; hereListeners.forEach(l => l()); };
+const useHere = () => useSyncExternalStore(l => { hereListeners.add(l); return () => { hereListeners.delete(l); }; }, () => here);
+/** Open the player for an item, picking up where it was left if asked. */
+const watchHere = (node: MediaNode, meta: Partial<TvProgress> = {}, opts: { resumeAt?: number } = {}) => {
+  setHere({ node, meta, resumeAt: opts.resumeAt });
+  return Promise.resolve();
+};
+
+// Browsers other than Safari need a small helper to play the stream; it's loaded on first use.
+const HLS_URL = 'https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.mjs';
+let hlsModule: Promise<any> | null = null;
+const loadHls = () => (hlsModule ||= import(/* @vite-ignore */ HLS_URL).then(m => m.default));
+
+const HerePlayer: React.FC<{ h: Here; onClose: () => void }> = ({ h, onClose }) => {
+  const video = useRef<HTMLVideoElement>(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const lastSave = useRef(0);
+
+  const save = () => {
+    const v = video.current;
+    if (v && v.duration && isFinite(v.duration)) saveHereProgress(h.node, h.meta, v.currentTime, v.duration);
+  };
+
+  useEffect(() => {
+    let hls: any = null;
+    let live = true;
+    (async () => {
+      try {
+        const url = await streamHere(h.node);
+        if (!live) return;
+        if (!url) { setError('Watching here works in Homedash inside Home Assistant (the kitchen iPad, or homeassistant.local on a computer).'); return; }
+        const v = video.current!;
+        const start = () => { if (h.resumeAt && h.resumeAt > 30) v.currentTime = Math.max(0, h.resumeAt - 5); v.play().catch(() => {}); };
+        if (v.canPlayType('application/vnd.apple.mpegurl')) {
+          v.src = url;
+          v.addEventListener('loadedmetadata', start, { once: true });
+        } else {
+          const Hls = await loadHls();
+          if (!live) return;
+          if (!Hls.isSupported()) { setError('This browser can\'t play the video.'); return; }
+          hls = new Hls({ startPosition: h.resumeAt && h.resumeAt > 30 ? h.resumeAt - 5 : -1 });
+          hls.on(Hls.Events.ERROR, (_: any, d: any) => { if (d.fatal) setError('The video stopped loading. Check the connection and try again.'); });
+          hls.loadSource(url);
+          hls.attachMedia(v);
+          hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(() => {}));
+        }
+      } catch (e: any) {
+        if (live) setError(e?.message || 'Couldn\'t start the video');
+      }
+    })();
+    return () => { live = false; save(); if (hls) hls.destroy(); };
+  }, [h]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-[270] bg-black flex flex-col">
+      <div className="flex items-center gap-3 p-3 pt-safe-4 text-white">
+        <button onClick={onClose} aria-label="Close the video" className="w-11 h-11 rounded-full bg-white/15 flex items-center justify-center shrink-0"><HomeIcons.Close /></button>
+        <div className="min-w-0">
+          <p className="font-semibold truncate">{h.node.title}</p>
+          {h.meta.show && <p className="text-sm text-white/70 truncate">{h.meta.show}{h.meta.episode ? ` · Episode ${h.meta.episode}` : ''}</p>}
+        </div>
+      </div>
+      <div className="relative flex-1 min-h-0">
+        <video ref={video} controls playsInline className="w-full h-full bg-black"
+          onPlaying={() => setLoading(false)}
+          onPause={save}
+          onEnded={() => { save(); onClose(); }}
+          onTimeUpdate={() => { if (Date.now() - lastSave.current > 15000) { lastSave.current = Date.now(); save(); } }} />
+        {loading && !error && <p className="absolute inset-0 flex items-center justify-center text-white/70 pointer-events-none">Getting it ready… (this can take a few seconds)</p>}
+        {error && <p className="absolute inset-0 flex items-center justify-center p-8 text-center text-white">{error}</p>}
+      </div>
+    </div>
+  );
+};
 
 // --- Small pieces ---------------------------------------------------------------------------
 
@@ -101,7 +189,7 @@ const NowOnTv: React.FC<{ compact?: boolean }> = ({ compact }) => {
 /** One "continue watching" tile. */
 const ResumeTile: React.FC<{ p: TvProgress; onError: (m: string) => void }> = ({ p, onError }) => (
   <button
-    onClick={() => playOnTv({ id: `media-source://jellyfin/${p.id}`, title: p.title, kind: 'episode', playable: true, thumb: p.thumb }, {}, { resumeAt: p.pos }).catch(e => onError(e?.message || 'Couldn\'t play it'))}
+    onClick={() => watchHere({ id: `media-source://jellyfin/${p.id}`, title: p.title, kind: 'episode', playable: true, thumb: p.thumb }, { show: p.show, season: p.season, episode: p.episode }, { resumeAt: p.pos }).catch(e => onError(e?.message || 'Couldn\'t play it'))}
     className="text-left group">
     <div className="relative rounded-2xl overflow-hidden">
       <Poster wide src={p.thumb} title={p.title} />
@@ -125,11 +213,11 @@ const EpisodeRow: React.FC<{ ep: MediaNode; n: number; show: string; season: str
   const meta = { show, season, episode: n };
   const play = (resumeAt?: number) => {
     setStarting(true);
-    playOnTv(ep, meta, { resumeAt }).catch(e => onError(e?.message || 'Couldn\'t play it')).finally(() => setTimeout(() => setStarting(false), 4000));
+    watchHere(ep, meta, { resumeAt }).catch(e => onError(e?.message || 'Couldn\'t play it')).finally(() => setTimeout(() => setStarting(false), 4000));
   };
   return (
     <li className="flex items-center gap-4 p-2 rounded-2xl hover:bg-slate-50">
-      <button onClick={() => play(started ? p!.pos : undefined)} className="relative w-36 sm:w-44 shrink-0 rounded-xl overflow-hidden" aria-label={`Play ${ep.title} on the TV`}>
+      <button onClick={() => play(started ? p!.pos : undefined)} className="relative w-36 sm:w-44 shrink-0 rounded-xl overflow-hidden" aria-label={`Play ${ep.title}`}>
         <Poster wide src={ep.thumb} title={ep.title} />
         {started && <Bar value={p!.pos / p!.dur} className="absolute left-2 right-2 bottom-2 !bg-white/40" />}
         {p?.done && <span className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-indigo-700 text-white flex items-center justify-center"><Tick className="w-3.5 h-3.5" /></span>}
@@ -165,7 +253,7 @@ const MoviePage: React.FC<{ movie: MediaNode; onBack: () => void }> = ({ movie, 
   const play = (resumeAt?: number) => {
     setStarting(true);
     setError('');
-    playOnTv(movie, {}, { resumeAt }).catch(e => setError(e?.message || 'Couldn\'t play it')).finally(() => setTimeout(() => setStarting(false), 4000));
+    watchHere(movie, {}, { resumeAt }).catch(e => setError(e?.message || 'Couldn\'t play it')).finally(() => setTimeout(() => setStarting(false), 4000));
   };
   return (
     <div>
@@ -182,7 +270,7 @@ const MoviePage: React.FC<{ movie: MediaNode; onBack: () => void }> = ({ movie, 
           <div className="flex flex-wrap gap-2 mt-4">
             <button onClick={() => play(started ? p!.pos : undefined)} disabled={starting}
               className="h-12 px-5 rounded-2xl bg-indigo-700 text-white font-semibold flex items-center gap-2 shadow-sm disabled:opacity-60">
-              {starting ? 'Opening…' : <><HomeIcons.Play className="w-4 h-4" /> {started ? 'Resume on the TV' : 'Watch on the TV'}</>}
+              {starting ? 'Opening…' : <><HomeIcons.Play className="w-4 h-4" /> {started ? 'Resume' : 'Watch'}</>}
             </button>
             {started && <button onClick={() => play()} className="h-12 px-4 rounded-2xl text-slate-700 bg-slate-100 font-semibold">Start again</button>}
             <button onClick={() => setWatched(movie, {}, !p?.done)} aria-pressed={!!p?.done}
@@ -242,9 +330,9 @@ const ShowPage: React.FC<{ show: MediaNode; onBack: () => void }> = ({ show, onB
           <h1 className="font-display text-3xl md:text-5xl leading-tight text-slate-900">{show.title}</h1>
           {episodes && <p className="text-slate-500 mt-1">{season ? `${season.title} · ` : ''}{watched} of {episodes.length} watched</p>}
           {next && (
-            <button onClick={() => playOnTv(next, { show: show.title, season: season?.title, episode: nextN }, { resumeAt: nextP && !nextP.done ? nextP.pos : undefined }).catch(e => setError(e?.message || 'Couldn\'t play it'))}
+            <button onClick={() => watchHere(next, { show: show.title, season: season?.title, episode: nextN }, { resumeAt: nextP && !nextP.done ? nextP.pos : undefined }).catch(e => setError(e?.message || 'Couldn\'t play it'))}
               className="mt-4 h-12 px-5 rounded-2xl bg-indigo-700 text-white font-semibold flex items-center gap-2 shadow-sm">
-              <HomeIcons.Play className="w-4 h-4" /> {nextP && nextP.pos > 60 && !nextP.done ? 'Resume' : 'Play'} episode {nextN} on the TV
+              <HomeIcons.Play className="w-4 h-4" /> {nextP && nextP.pos > 60 && !nextP.done ? 'Resume' : 'Play'} episode {nextN}
             </button>
           )}
         </div>
@@ -279,6 +367,7 @@ const TvView: React.FC = () => {
   const [open, setOpen] = useState<MediaNode | null>(null);
   const [filter, setFilter] = useState('');
   const [finding, setFinding] = useState<FindKind | null>(null);
+  const current = useHere();
   const progress = useTvProgress();
   const resume = continueWatching(progress).slice(0, 4);
 
@@ -288,6 +377,7 @@ const TvView: React.FC = () => {
   return (
     <div className="max-w-6xl space-y-6 pb-16">
       <TvNotice />
+      {current && <HerePlayer h={current} onClose={() => setHere(null)} />}
       <NowOnTv />
       {open ? (open.playable
         ? <MoviePage movie={open} onBack={() => setOpen(null)} />

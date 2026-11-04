@@ -111,6 +111,34 @@ export async function pictureUrl(thumb?: string): Promise<string | undefined> {
   try { const u = new URL(thumb); return `${base}${u.pathname.slice(1)}${u.search}`; } catch { return thumb; }
 }
 
+// --- Watching on this device ---------------------------------------------------------------
+// Jellyfin converts the file into a stream any phone, tablet or computer can play (HLS, H.264
+// video and stereo AAC sound), fetched through Home Assistant so it works wherever the page does.
+
+/** The stream address for playing an item right here, or null when this page can't reach it. */
+export async function streamHere(node: MediaNode): Promise<string | null> {
+  const hass = hassStore.get();
+  if (!hass) throw new Error('Watching needs Home Assistant. Connect to home and try again.');
+  const base = await jellyfinIngress();
+  if (!base) return null;
+  const id = itemId(node.id);
+  const res = await hass.callWS({ type: 'media_source/resolve_media', media_content_id: node.id });
+  const key = new URL(res.url).searchParams.get('api_key') || '';
+  const q = new URLSearchParams({
+    MediaSourceId: id, DeviceId: 'homedash-web', PlaySessionId: `hd${Date.now()}`,
+    VideoCodec: 'h264', AudioCodec: 'aac', MaxAudioChannels: '2', TranscodingMaxAudioChannels: '2',
+    SegmentContainer: 'ts', VideoBitrate: '6000000', AudioBitrate: '192000', BreakOnNonKeyFrames: 'true',
+    ApiKey: key,
+  });
+  return `${location.origin}${base}Videos/${id}/master.m3u8?${q}`;
+}
+
+/** Save how far through something watched on this device is. */
+export const saveHereProgress = (node: MediaNode, meta: Partial<TvProgress>, pos: number, dur: number) => {
+  if (!dur) return;
+  upsertProgress({ id: itemId(node.id), title: node.title, thumb: node.thumb, ...meta, pos: Math.round(pos), dur: Math.round(dur), done: pos >= dur * 0.92 });
+};
+
 // --- Watched / where you got to ------------------------------------------------------------
 // The list lives in App (so it syncs with the meal plan etc.); this mirrors it for components.
 let progress: TvProgress[] = [];
