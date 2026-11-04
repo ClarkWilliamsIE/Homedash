@@ -3,8 +3,8 @@
 // frame (when nobody's using it), and the Settings section for adding and removing photos.
 
 import React, { useEffect, useRef, useState } from 'react';
-import { WeeklyPlan } from '../../types';
-import { callService, useEntity } from '../../lib/hass';
+import { CalendarEvent, WeeklyPlan } from '../../types';
+import { callService, useEntities, useEntity } from '../../lib/hass';
 import { useSettings } from '../../lib/settings';
 import { useTimers } from '../../lib/timers';
 import { useWeather } from '../../lib/useWeather';
@@ -15,6 +15,8 @@ import { Panel } from '../ui';
 import { Card, Switch } from './controls';
 import { HomeIcons } from './icons';
 import { inNightWindow } from './NightMode';
+import { eventsOn, eventTime } from '../../lib/calendar';
+import { HOME } from '../../home.config';
 
 // --- Building blocks ----------------------------------------------------------------------
 
@@ -211,11 +213,12 @@ const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 
 
 /** After a few idle minutes in the daytime, the kitchen iPad shows the photos with the time,
  *  weather and tonight's dinner. Any touch brings the dashboard back. */
-export const PhotoFrame: React.FC<{ weeklyPlan: WeeklyPlan }> = ({ weeklyPlan }) => {
+export const PhotoFrame: React.FC<{ weeklyPlan: WeeklyPlan; events?: CalendarEvent[] }> = ({ weeklyPlan, events = [] }) => {
   const { frame, night } = useSettings();
   const { photos } = usePhotoList();
   const timers = useTimers();
   const weather = useWeather();
+  const music = useEntities([HOME.music.group, ...HOME.music.speakers.map(s => s.entity)]);
   const [lastTouch, setLastTouch] = useState(Date.now());
   const [now, setNow] = useState(new Date());
 
@@ -235,23 +238,43 @@ export const PhotoFrame: React.FC<{ weeklyPlan: WeeklyPlan }> = ({ weeklyPlan })
   if (!active) return null;
 
   const dinner = weeklyPlan[DAYS[now.getDay()]]?.[0];
+  // The next thing on the calendar: later today, else tomorrow.
+  const tomorrow = new Date(now); tomorrow.setDate(now.getDate() + 1);
+  const later = eventsOn(events, now).filter(e => e.start.dateTime && new Date(e.start.dateTime) > now);
+  const next = later[0] || eventsOn(events, tomorrow)[0];
+  const nextWhen = next ? `${later[0] ? '' : 'Tomorrow '}${eventTime(next)}`.replace('Tomorrow All day', 'Tomorrow') : '';
+  const playing = music.find(m => m?.state === 'playing' && m.attributes.media_title);
+  const time = now.toLocaleTimeString('en-NZ', { hour: 'numeric', minute: '2-digit', hour12: true }).replace(/\s?[ap]m$/i, '');
+
+  // One quiet line per item: a soft label, then the thing itself.
+  const rows: { label: string; text: string }[] = [];
+  if (weather) rows.push({ label: `${weather.temp}°`, text: `${weather.condition}, high ${weather.high}°` });
+  if (next) rows.push({ label: nextWhen, text: next.summary });
+  if (dinner) rows.push({ label: 'Dinner', text: dinner.name });
+  if (playing) rows.push({ label: 'Playing', text: `${playing.attributes.media_title}${playing.attributes.media_artist ? ` · ${playing.attributes.media_artist}` : ''}` });
+
   return (
     <div className="fixed inset-0 z-[290] bg-black cursor-pointer select-none" onPointerDown={() => setLastTouch(Date.now())}>
       <Crossfade photo={photo} />
-      <div className="absolute inset-x-0 bottom-0 p-10 pt-32 bg-gradient-to-t from-black/70 via-black/30 to-transparent text-white flex items-end justify-between gap-8">
+      {photoCaption(photo) && (
+        <p className="absolute top-6 right-8 text-sm font-medium text-white/70 [text-shadow:0_1px_6px_rgba(0,0,0,.5)]">{photoCaption(photo)}</p>
+      )}
+      <div className="absolute inset-x-0 bottom-0 h-72 bg-gradient-to-t from-black/60 via-black/25 to-transparent pointer-events-none" />
+      <div className="absolute inset-x-0 bottom-0 px-10 pb-9 flex items-end justify-between gap-10 text-white [text-shadow:0_1px_8px_rgba(0,0,0,.35)]">
         <div>
-          <p className="text-7xl font-semibold tabular-nums leading-none">
-            {now.toLocaleTimeString('en-NZ', { hour: 'numeric', minute: '2-digit', hour12: true }).replace(/\s?[ap]m$/i, '')}
-          </p>
-          <p className="text-xl font-semibold text-white/85 mt-3">
-            {now.toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long' })}
-            {weather && <span> · {weather.temp}° {weather.condition.toLowerCase()}</span>}
-          </p>
+          <p className="text-[6.5rem] font-light tabular-nums leading-[0.9] tracking-tight">{time}</p>
+          <p className="text-lg text-white/80 mt-3">{now.toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
         </div>
-        <div className="text-right">
-          {dinner && <p className="text-xl font-semibold"><span className="text-white/70">Tonight</span> · {dinner.name}</p>}
-          {photoCaption(photo) && <p className="text-white/70 font-semibold mt-1">{photoCaption(photo)}</p>}
-        </div>
+        {rows.length > 0 && (
+          <ul className="max-w-[46%] space-y-1.5 pb-1">
+            {rows.map(r => (
+              <li key={r.label + r.text} className="flex items-baseline justify-end gap-3 text-right">
+                <span className="text-sm text-white/60 whitespace-nowrap shrink-0">{r.label}</span>
+                <span className="text-lg truncate">{r.text}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

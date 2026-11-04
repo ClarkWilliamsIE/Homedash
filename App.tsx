@@ -856,7 +856,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
       )}
 
       <TimerTray />
-      {embedded && isHome && <PhotoFrame weeklyPlan={weeklyPlan} />}
+      {embedded && isHome && <PhotoFrame weeklyPlan={weeklyPlan} events={calendarEvents} />}
       {embedded && isHome && <NightMode events={calendarEvents} weeklyPlan={weeklyPlan} />}
     </div>
   );
