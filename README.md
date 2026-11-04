@@ -85,6 +85,61 @@ The same app also runs **inside Home Assistant**, where it adds a Home screen (t
 
 **Browse music** (Music screen): search Spotify and your Music Assistant library (playlists, recently played, albums, artists, radio) and play on any speaker or the kitchen & family room group, or add to the queue. Uses Music Assistant's `search` / `get_library` services, so it works on non-admin logins too.
 
+## Get a new show or movie (TV screen → Sonarr / Radarr)
+
+The TV screen has **Get a new show** and **Get a movie** buttons: search by name, tap **Get this show**
+(then pick *Whole show*, *Season 1 only* or *Latest season*) or **Get this movie**, and Sonarr (TV) or
+Radarr (films) finds and downloads it. Episodes appear
+under All shows (from Jellyfin) as each one finishes. Shows you already have say so, with how many
+episodes are in.
+
+Homedash talks to Sonarr and Radarr through Home Assistant REST commands, so their API keys stay in
+Home Assistant and never reaches the browser. One-time setup:
+
+1. In Sonarr and in Radarr, go to Settings → General and copy each **API Key**.
+2. In Home Assistant's `secrets.yaml` (File editor or Studio Code Server add-on), add:
+   ```yaml
+   sonarr_api_key: PASTE_THE_SONARR_KEY_HERE
+   radarr_api_key: PASTE_THE_RADARR_KEY_HERE
+   ```
+3. In `configuration.yaml`, add:
+   ```yaml
+   rest_command:
+     sonarr_get:
+       url: "http://localhost:8989/sonarr/api/v3/{{ path }}"
+       method: get
+       headers:
+         X-Api-Key: !secret sonarr_api_key
+       timeout: 30
+     sonarr_post:
+       url: "http://localhost:8989/sonarr/api/v3/{{ path }}"
+       method: post
+       headers:
+         X-Api-Key: !secret sonarr_api_key
+       content_type: "application/json"
+       payload: "{{ body | tojson }}"
+       timeout: 30
+     radarr_get:
+       url: "http://localhost:7878/radarr/api/v3/{{ path }}"
+       method: get
+       headers:
+         X-Api-Key: !secret radarr_api_key
+       timeout: 30
+     radarr_post:
+       url: "http://localhost:7878/radarr/api/v3/{{ path }}"
+       method: post
+       headers:
+         X-Api-Key: !secret radarr_api_key
+       content_type: "application/json"
+       payload: "{{ body | tojson }}"
+       timeout: 30
+   ```
+   (If you already have a `rest_command:` section, add the two entries under it.)
+4. Developer Tools → YAML → **Check configuration**, then **Restart**.
+
+New shows go into Sonarr's TV folder (`/share/jellyfin/tv`) and films into Radarr's (`/share/jellyfin/movies`),
+at the quality you use most.
+
 ## Alexa: add to the shopping list by voice
 
 "Alexa, ask Homedash to add milk and bread" (or "Alexa, ask Homedash what's on the list") works on any

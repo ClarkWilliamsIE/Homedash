@@ -1,16 +1,14 @@
 // components/home/TvView.tsx
-// TV shows from Jellyfin: a card on the home screen and a full page to pick a show, season and
-// episode and play it on the living room TV (in the Jellyfin app). Episodes get a watched tick and a progress bar,
+// TV shows and films from Jellyfin: pick a show, season and episode (or a film) and watch it on
+// the living room TV in the Jellyfin app; and get new ones (Sonarr / Radarr). Episodes get a watched tick and a progress bar,
 // and "Continue watching" picks up where you left off.
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useEntities, useEntity } from '../../lib/hass';
 import {
-  CAST_TV, MediaNode, TvProgress, currentTv, loadJellyfinPlayers, useJellyfinPlayers, allTitles, browse, continueWatching, fmtMins, livePosition, playOnTv,
+  CAST_TV, MediaNode, TvProgress, canControl, currentTv, loadJellyfinPlayers, useJellyfinPlayers, useTvNotice, allTitles, browse, continueWatching, fmtMins, livePosition, playOnTv,
   pictureUrl, playingItemId, progressFor, setWatched, tvControl, tvSeekBy, useTvProgress,
 } from '../../lib/tv';
-import { Panel } from '../ui';
-import { MoreLink } from './controls';
 import { HomeIcons } from './icons';
 import NewShowSearch, { FindKind } from './NewShowSearch';
 
@@ -59,7 +57,19 @@ const useNowPlaying = () => {
   const meta = progress.find(p => p.id === id);
   const dur = Number(s.attributes.media_duration || meta?.dur || 0);
   const pos = livePosition(s.attributes, s.state);
-  return { id, state: s.state, pos, dur, meta };
+  return { id, state: s.state, pos, dur, meta, control: canControl(s.entity_id) };
+};
+
+/** "Jellyfin is opening on the TV…" after tapping Play. */
+const TvNotice: React.FC = () => {
+  const notice = useTvNotice();
+  if (!notice) return null;
+  return (
+    <div className="flex items-center gap-3 rounded-2xl bg-indigo-50 p-3 text-indigo-900">
+      <HomeIcons.Tv className="w-5 h-5 shrink-0" />
+      <p className="font-semibold">{notice}</p>
+    </div>
+  );
 };
 
 const NowOnTv: React.FC<{ compact?: boolean }> = ({ compact }) => {
@@ -75,7 +85,7 @@ const NowOnTv: React.FC<{ compact?: boolean }> = ({ compact }) => {
         {now.meta?.show && <p className="text-sm text-slate-500 truncate">{now.meta.show}{now.meta.episode ? ` · Episode ${now.meta.episode}` : ''}</p>}
         {now.dur > 0 && <Bar value={now.pos / now.dur} className="mt-1.5" />}
       </div>
-      <div className="flex items-center gap-1 shrink-0">
+      {now.control && <div className="flex items-center gap-1 shrink-0">
         {!compact && <button aria-label="Back 30 seconds" onClick={() => tvSeekBy(-30)} className="w-10 h-10 rounded-full text-slate-600 hover:bg-white text-xs font-bold">−30</button>}
         <button aria-label={now.state === 'playing' ? 'Pause the TV' : 'Play the TV'} onClick={() => tvControl('media_play_pause')}
           className="w-11 h-11 rounded-full bg-indigo-700 text-white flex items-center justify-center">
@@ -83,7 +93,7 @@ const NowOnTv: React.FC<{ compact?: boolean }> = ({ compact }) => {
         </button>
         {!compact && <button aria-label="Forward 30 seconds" onClick={() => tvSeekBy(30)} className="w-10 h-10 rounded-full text-slate-600 hover:bg-white text-xs font-bold">+30</button>}
         <button aria-label="Stop the TV" onClick={() => tvControl('media_stop')} className="w-10 h-10 rounded-full text-slate-500 hover:bg-white flex items-center justify-center"><HomeIcons.Close className="w-5 h-5" /></button>
-      </div>
+      </div>}
     </div>
   );
 };
@@ -104,41 +114,6 @@ const ResumeTile: React.FC<{ p: TvProgress; onError: (m: string) => void }> = ({
     <p className="text-sm text-slate-500 truncate">{p.show ? `${p.show} · ` : ''}{fmtMins(p.dur - p.pos)} left</p>
   </button>
 );
-
-// --- Home screen card ---------------------------------------------------------------------
-
-export const TvCard: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
-  const progress = useTvProgress();
-  const resume = continueWatching(progress).slice(0, 2);
-  const [titles, setTitles] = useState<MediaNode[] | null>(null);
-  const [msg, setMsg] = useState('');
-  useEffect(() => { allTitles().then(setTitles).catch(() => setTitles([])); }, []);
-  return (
-    <Panel title="TV" action={<MoreLink onClick={onOpen}>All shows</MoreLink>}>
-      <div className="space-y-4">
-        <NowOnTv compact />
-        {resume.length > 0 ? (
-          <div>
-            <p className="text-sm font-semibold text-slate-600 mb-2">Continue watching</p>
-            <div className="grid grid-cols-2 gap-3">{resume.map(p => <ResumeTile key={p.id} p={p} onError={setMsg} />)}</div>
-          </div>
-        ) : titles && titles.length > 0 ? (
-          <div className="grid grid-cols-3 gap-3">
-            {titles.slice(0, 3).map(t => (
-              <button key={t.id} onClick={onOpen} className="text-left">
-                <Poster src={t.thumb} title={t.title} className="rounded-xl" />
-                <p className="mt-1 text-sm font-semibold text-slate-800 truncate">{t.title}</p>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="text-slate-500">{titles === null ? 'Loading shows…' : 'No shows in Jellyfin yet.'}</p>
-        )}
-        {msg && <p className="text-sm font-semibold text-rose-700">{msg}</p>}
-      </div>
-    </Panel>
-  );
-};
 
 // --- The page -----------------------------------------------------------------------------
 
@@ -173,7 +148,7 @@ const EpisodeRow: React.FC<{ ep: MediaNode; n: number; show: string; season: str
           className={`sm:hidden w-10 h-10 rounded-xl flex items-center justify-center ${p?.done ? 'bg-indigo-50 text-indigo-800' : 'text-slate-400'}`}><Tick /></button>
         <button onClick={() => play(started ? p!.pos : undefined)} disabled={starting}
           className="h-10 px-4 rounded-xl bg-indigo-700 text-white text-sm font-semibold flex items-center gap-1.5 disabled:opacity-60">
-          {starting ? 'Starting…' : <><HomeIcons.Play className="w-3.5 h-3.5" /> {started ? 'Resume' : 'Play'}</>}
+          {starting ? 'Opening…' : <><HomeIcons.Play className="w-3.5 h-3.5" /> {started ? 'Resume' : 'Play'}</>}
         </button>
       </div>
     </li>
@@ -270,6 +245,7 @@ const TvView: React.FC = () => {
 
   return (
     <div className="max-w-6xl space-y-6 pb-16">
+      <TvNotice />
       <NowOnTv />
       {open ? <ShowPage show={open} onBack={() => setOpen(null)} /> : (
         <>
