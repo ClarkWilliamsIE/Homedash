@@ -115,6 +115,15 @@ export async function pictureUrl(thumb?: string): Promise<string | undefined> {
 // Jellyfin converts the file into a stream any phone, tablet or computer can play (HLS, H.264
 // video and stereo AAC sound), fetched through Home Assistant so it works wherever the page does.
 
+/** Can this browser play HEVC (H.265) video, as Safari and most Macs can? */
+const canPlayHevc = () => {
+  try {
+    const type = 'video/mp4; codecs="hvc1.1.6.L120.90"';
+    if (document.createElement('video').canPlayType(type)) return true;
+    return typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(type);
+  } catch { return false; }
+};
+
 /** The stream address for playing an item right here, or null when this page can't reach it. */
 export async function streamHere(node: MediaNode): Promise<string | null> {
   const hass = hassStore.get();
@@ -124,10 +133,15 @@ export async function streamHere(node: MediaNode): Promise<string | null> {
   const id = itemId(node.id);
   const res = await hass.callWS({ type: 'media_source/resolve_media', media_content_id: node.id });
   const key = new URL(res.url).searchParams.get('api_key') || '';
+  // Ask Jellyfin to pass the video through untouched whenever this device can play it (most
+  // files are H.264; Safari and Macs can also play HEVC), so the server only repackages it.
+  // Re-encoding on the old MacBook's processor is what made it buffer.
   const q = new URLSearchParams({
     MediaSourceId: id, DeviceId: 'homedash-web', PlaySessionId: `hd${Date.now()}`,
-    VideoCodec: 'h264', AudioCodec: 'aac', MaxAudioChannels: '2', TranscodingMaxAudioChannels: '2',
-    SegmentContainer: 'ts', VideoBitrate: '6000000', AudioBitrate: '192000', BreakOnNonKeyFrames: 'true',
+    VideoCodec: canPlayHevc() ? 'h264,hevc' : 'h264', AudioCodec: 'aac',
+    MaxAudioChannels: '2', TranscodingMaxAudioChannels: '2',
+    SegmentContainer: 'mp4', VideoBitrate: '40000000', AudioBitrate: '192000',
+    AllowVideoStreamCopy: 'true', AllowAudioStreamCopy: 'true',
     ApiKey: key,
   });
   return `${location.origin}${base}Videos/${id}/master.m3u8?${q}`;
