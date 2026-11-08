@@ -69,6 +69,8 @@ export interface HomeSettings {
   moods: Mood[];
   /** Show the mood buttons on the home screen and Music page. */
   showMoods: boolean;
+  /** Show the fridge notes on the home screen. */
+  showNotes: boolean;
   rooms: Room[];
   cooking: CookingSettings;
   dinner: DinnerSettings;
@@ -92,6 +94,7 @@ export const DEFAULT_SETTINGS: HomeSettings = {
     { id: 'profile_wind_down', name: 'Wind down', hint: 'Bedroom only', tone: 'indigo', volumes: { [K]: null, [FR]: null, [ST]: null, [BR]: 20 }, music: GOOD },
   ],
   showMoods: true,
+  showNotes: false,
   rooms: HOME.rooms,
   cooking: { moodId: 'profile_cooking', lights: HOME.cooking.lights, brightness: 100, kelvin: HOME.cooking.colorTempKelvin },
   dinner: { message: "Dinner's ready! Come and eat.", volume: 55, flashLights: ['light.kids_lights'] },
@@ -106,6 +109,7 @@ export const withDefaults = (s?: Partial<HomeSettings> | null): HomeSettings => 
   version: 1,
   moods: s?.moods?.length ? s.moods : DEFAULT_SETTINGS.moods,
   showMoods: s?.showMoods ?? true,
+  showNotes: s?.showNotes ?? false,
   rooms: s?.rooms?.length ? s.rooms : DEFAULT_SETTINGS.rooms,
   cooking: { ...DEFAULT_SETTINGS.cooking, ...(s?.cooking || {}) },
   dinner: { ...DEFAULT_SETTINGS.dinner, ...(s?.dinner || {}) },

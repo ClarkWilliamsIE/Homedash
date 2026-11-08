@@ -486,6 +486,17 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onChange, calenda
         </div>
       </Card>
 
+      {/* HOME SCREEN */}
+      <Card title="Home screen">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="flex-1 min-w-[15rem]">
+            <p className="font-bold text-slate-800">Fridge notes</p>
+            <p className="text-sm font-semibold text-slate-500">Show the family notes on the home screen.</p>
+          </div>
+          <Switch tone="indigo" on={settings.showNotes} onToggle={() => update({ showNotes: !settings.showNotes })} label="Fridge notes on the home screen" />
+        </div>
+      </Card>
+
       {/* FAMILY PHOTOS */}
       <PhotoSettings onChangeFrame={patch => update({ frame: { ...settings.frame, ...patch } })} />
 

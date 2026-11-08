@@ -19,7 +19,6 @@ import { AddItemBar, MealPhoto, Btn, Icon, Panel } from '../ui';
 import { LightRow, MoreLink } from './controls';
 import { HomeIcons } from './icons';
 import { AlsoPlaying, MasterVolume, NowPlaying, ProfileGrid, SpeakerMixer } from './music';
-import { PhotoCard } from './photos';
 import GardenCard from './GardenCard';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -83,7 +82,7 @@ const DinnerButton: React.FC = () => {
   return (
     <Btn
       size="lg"
-      className="w-full md:w-auto lg:h-11 lg:px-4 lg:text-[15px]"
+      className="w-full md:w-auto lg:h-11 lg:px-3.5 lg:text-[15px]"
       variant={called ? 'secondary' : 'clay'}
       onClick={() => { callDinner(); setCalled(true); setTimeout(() => setCalled(false), 4000); }}
       icon={<HomeIcons.Bell className="w-5 h-5" />}
@@ -99,7 +98,8 @@ const Tonight: React.FC<{
   onOpen: (r: Recipe, cook?: boolean) => void;
   onPlan: () => void;
   onQuickPlan: (r: Recipe) => void;
-}> = ({ meals, favourites, onOpen, onPlan, onQuickPlan }) => {
+  className?: string;
+}> = ({ meals, favourites, onOpen, onPlan, onQuickPlan, className = '' }) => {
   const isHome = useIsHome();
   const { moods, cooking } = useSettings();
   const main = meals[0];
@@ -108,9 +108,9 @@ const Tonight: React.FC<{
 
   if (!main) {
     return (
-      <section className="bg-white rounded-3xl border border-slate-200/70 shadow-sm p-6 md:p-8">
+      <section className={`bg-white rounded-3xl border border-slate-200/70 shadow-sm p-6 md:p-8 lg:p-6 overflow-hidden ${className}`}>
         <p className="font-semibold text-orange-600">Tonight</p>
-        <h2 className="font-display text-3xl md:text-4xl text-slate-900 mt-1">Nothing planned yet</h2>
+        <h2 className="font-display text-3xl md:text-4xl lg:text-3xl text-slate-900 mt-1">Nothing planned yet</h2>
         <div className="flex flex-wrap gap-2 mt-5">
           <Btn size="lg" onClick={onPlan} icon={<Icon.Plus className="w-5 h-5" />}>Choose tonight's dinner</Btn>
           {isHome && <DinnerButton />}
@@ -135,7 +135,7 @@ const Tonight: React.FC<{
   if (main.isCustom) {
     // A one-off meal (out for a BBQ, takeaways): no photo or method, just the plan and what to bring.
     return (
-      <section className="bg-white rounded-3xl border border-slate-200/70 shadow-sm p-6 md:p-8 flex gap-5 md:gap-8 items-start">
+      <section className={`bg-white rounded-3xl border border-slate-200/70 shadow-sm p-6 md:p-8 lg:p-6 flex gap-5 md:gap-8 items-start overflow-hidden ${className}`}>
         <MealPhoto meal={main} big className="hidden md:flex w-40 h-40 rounded-3xl shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="font-semibold text-orange-600">Tonight</p>
@@ -156,20 +156,20 @@ const Tonight: React.FC<{
   }
 
   return (
-    <section className="bg-white rounded-3xl border border-slate-200/70 shadow-sm overflow-hidden md:grid md:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:grid-cols-[11rem_minmax(0,1fr)]">
-      <button onClick={() => onOpen(main)} className="block relative bg-slate-200 aspect-[16/10] md:aspect-auto md:min-h-[19rem] lg:min-h-[10.5rem] w-full" aria-label={`Open ${main.name}`}>
+    <section className={`bg-white rounded-3xl border border-slate-200/70 shadow-sm overflow-hidden md:grid md:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:grid-cols-[minmax(0,0.62fr)_minmax(0,1.38fr)] ${className}`}>
+      <button onClick={() => onOpen(main)} className="block relative bg-slate-200 aspect-[16/10] md:aspect-auto md:min-h-[19rem] lg:min-h-0 w-full" aria-label={`Open ${main.name}`}>
         <img src={main.imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
       </button>
       <div className="p-5 md:p-8 lg:px-6 lg:py-5 flex flex-col min-w-0">
         <p className="font-semibold text-orange-600">Tonight</p>
-        <h2 className="font-display text-[2rem] md:text-[2.6rem] lg:text-[2rem] leading-[1.1] text-slate-900 mt-1 line-clamp-3 lg:line-clamp-1">{main.name}</h2>
+        <h2 className="font-display text-[2rem] md:text-[2.6rem] lg:text-[1.75rem] leading-[1.1] text-slate-900 mt-1 line-clamp-3 lg:line-clamp-2">{main.name}</h2>
         <p className="text-slate-500 mt-2">
           {[main.tags.slice(0, 2).join(', '), `${main.ingredients.length} ingredients`].filter(Boolean).join(' · ')}
         </p>
         {meals.length > 1 && <p className="text-slate-500 mt-1">Also {meals.slice(1).map(m => m.name).join(', ')}</p>}
-        <div className="mt-auto pt-6 lg:pt-4 grid grid-cols-2 md:flex md:flex-wrap gap-2">
-          <Btn size="lg" className="lg:h-11 lg:px-4 lg:text-[15px]" onClick={() => { if (isHome) startCooking(); onOpen(main, true); }} icon={<HomeIcons.Chef className="w-5 h-5" />}>Start cooking</Btn>
-          <Btn size="lg" className="lg:h-11 lg:px-4 lg:text-[15px]" variant="secondary" onClick={() => onOpen(main)}>Recipe</Btn>
+        <div className="mt-auto pt-6 lg:pt-3 grid grid-cols-2 md:flex md:flex-wrap gap-2">
+          <Btn size="lg" className="lg:h-11 lg:px-3.5 lg:text-[15px]" onClick={() => { if (isHome) startCooking(); onOpen(main, true); }} icon={<HomeIcons.Chef className="w-5 h-5" />}>Start cooking</Btn>
+          <Btn size="lg" className="lg:h-11 lg:px-3.5 lg:text-[15px]" variant="secondary" onClick={() => onOpen(main)}>Recipe</Btn>
           {isHome && <div className="col-span-2 md:contents"><DinnerButton /></div>}
         </div>
         {isHome && whatItDoes && <p className="text-sm text-slate-500 mt-3 lg:hidden">Start cooking {whatItDoes}.</p>}
@@ -184,8 +184,8 @@ const LightsCard: React.FC<{ onMore: () => void }> = ({ onMore }) => {
   const party = useEntity(HOME.partyMode);
   const anyOn = rooms.some(e => e?.state === 'on');
   return (
-    <Panel title="Lights" action={<MoreLink onClick={onMore}>Every light</MoreLink>} className="h-full flex flex-col" bodyClassName="flex-1 flex flex-col">
-      <div className="space-y-2 flex-1">
+    <Panel title="Lights" action={<MoreLink onClick={onMore}>Every light</MoreLink>} className="h-full flex flex-col min-h-0" bodyClassName="flex-1 flex flex-col min-h-0">
+      <div className="space-y-2 flex-1 min-h-0 overflow-y-auto">
         {roomList.map((r, i) => <LightRow key={r.id} compact name={r.name} entityId={r.entity} entity={rooms[i]} />)}
       </div>
       <div className="grid grid-cols-2 gap-2 mt-3">
@@ -209,11 +209,11 @@ const LightsCard: React.FC<{ onMore: () => void }> = ({ onMore }) => {
   );
 };
 
-const ShoppingCard: React.FC<{ left: number; onAdd: (name: string) => void; onOpen: () => void }> = ({ left, onAdd, onOpen }) => {
+const ShoppingCard: React.FC<{ left: number; onAdd: (name: string) => void; onOpen: () => void; className?: string }> = ({ left, onAdd, onOpen, className = '' }) => {
   const [added, setAdded] = useState<string | null>(null);
   const timer = React.useRef<any>(null);
   return (
-    <Panel title="Shopping list" action={<MoreLink onClick={onOpen}>Open</MoreLink>}>
+    <Panel title="Shopping list" action={<MoreLink onClick={onOpen}>Open</MoreLink>} className={className}>
       <button onClick={onOpen} className="flex items-baseline gap-2 mb-4 lg:mb-3 text-left">
         <span className="font-display text-5xl text-slate-900 leading-none">{left}</span>
         <span className="text-slate-500">{left === 1 ? 'thing to get' : 'things to get'}</span>
@@ -230,11 +230,11 @@ const ShoppingCard: React.FC<{ left: number; onAdd: (name: string) => void; onOp
   );
 };
 
-const ComingUp: React.FC<{ plan: WeeklyPlan; fresh: (r: Recipe) => Recipe; onOpen: (r: Recipe) => void; onPlanWeek: () => void }> = ({ plan, fresh, onOpen, onPlanWeek }) => {
+const ComingUp: React.FC<{ plan: WeeklyPlan; fresh: (r: Recipe) => Recipe; onOpen: (r: Recipe) => void; onPlanWeek: () => void; className?: string; bodyClassName?: string }> = ({ plan, fresh, onOpen, onPlanWeek, className = '', bodyClassName = '' }) => {
   const todayIdx = new Date().getDay();
   const days = [1, 2, 3, 4, 5, 6].map(o => ({ o, day: DAYS[(todayIdx + o) % 7] }));
   return (
-    <Panel title="Coming up" action={<MoreLink onClick={onPlanWeek}>Plan the week</MoreLink>}>
+    <Panel title="Coming up" action={<MoreLink onClick={onPlanWeek}>Plan the week</MoreLink>} className={className} bodyClassName={bodyClassName}>
       <ul className="divide-y divide-slate-100 -my-1">
         {days.map(({ o, day }) => {
           const meals = (plan[day] || []).map(fresh);
@@ -269,56 +269,70 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   const tonight = useMemo(() => (weeklyPlan[today] || []).map(fresh), [weeklyPlan, recipes, today]); // eslint-disable-line react-hooks/exhaustive-deps
   const favourites = useMemo(() => recipes.filter(r => r.isFavorite).sort(() => 0.5 - Math.random()).slice(0, 6), [recipes]);
 
-  const notesPanel = <FridgeNotes notes={notes} onAddNote={onAddNote} onRemoveNote={onRemoveNote} className="h-full" />;
-  const shopping = <ShoppingCard left={shoppingLeft} onAdd={onAddShoppingItem} onOpen={() => onNavigate(View.ShoppingList)} />;
-  const comingUp = <ComingUp plan={weeklyPlan} fresh={fresh} onOpen={r => onOpenRecipe(r)} onPlanWeek={() => onNavigate(View.Dashboard)} />;
+  const { showNotes } = useSettings();
+  const notesPanel = showNotes ? <FridgeNotes notes={notes} onAddNote={onAddNote} onRemoveNote={onRemoveNote} className="h-full" /> : null;
+  const tonightCard = (cls = '') => (
+    <Tonight
+      className={cls}
+      meals={tonight}
+      favourites={favourites}
+      onOpen={onOpenRecipe}
+      onPlan={() => setPicking(true)}
+      onQuickPlan={r => onAddMeal(today, r)}
+    />
+  );
 
-  return (
-    <div className="pb-20">
-      <Masthead events={events} />
-
-      {(() => {
-        const tonightCard = (
-          <Tonight
-            meals={tonight}
-            favourites={favourites}
-            onOpen={onOpenRecipe}
-            onPlan={() => setPicking(true)}
-            onQuickPlan={r => onAddMeal(today, r)}
-          />
-        );
-        // On the kitchen iPad, tonight's dinner and the shopping list share the top row.
-        return isHome ? (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 lg:gap-4">
-            <div className="lg:col-span-2">{tonightCard}</div>
-            <div className="hidden lg:block">{shopping}</div>
-          </div>
-        ) : tonightCard;
-      })()}
-
-      {isHome ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 lg:gap-4 mt-5 lg:mt-4">
-          <Panel title="Music" action={<MoreLink onClick={() => onNavigate(View.Music)}>Browse</MoreLink>}>
+  if (isHome) {
+    // At home: one even grid that fills the screen on the kitchen iPad (no scrolling), and
+    // stacks on smaller screens. Top row: tonight + shopping. Below: music, lights, and the
+    // week ahead over the garden.
+    const fill = 'lg:h-full lg:min-h-0';
+    return (
+      <div className="pb-20 lg:pb-0 lg:h-full flex flex-col">
+        <Masthead events={events} />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 lg:gap-4 lg:flex-1 lg:min-h-0 lg:grid-rows-[minmax(0,14.5rem)_minmax(0,1fr)]">
+          <div className={`md:col-span-2 ${fill}`}>{tonightCard('h-full')}</div>
+          <ShoppingCard left={shoppingLeft} onAdd={onAddShoppingItem} onOpen={() => onNavigate(View.ShoppingList)} className={fill} />
+          <Panel title="Music" action={<MoreLink onClick={() => onNavigate(View.Music)}>Browse</MoreLink>}
+            className={`${fill} flex flex-col`} bodyClassName="flex-1 min-h-0 overflow-y-auto">
             <NowPlaying />
             <AlsoPlaying compact />
             <div className="mt-4 pt-3 border-t border-slate-100"><MasterVolume compact /></div>
             <div className="mt-3"><SpeakerMixer compact /></div>
             <div className="mt-4 empty:hidden"><ProfileGrid /></div>
           </Panel>
-          <LightsCard onMore={() => onNavigate(View.Lights)} />
-          <div className="lg:hidden">{shopping}</div>
-          <div className="md:col-span-2 lg:col-span-1">{comingUp}</div>
-          <PhotoCard />
-          <GardenCard />
-          <div className="md:col-span-2 lg:col-span-1">{notesPanel}</div>
+          <div className={fill}><LightsCard onMore={() => onNavigate(View.Lights)} /></div>
+          <div className={`flex flex-col gap-5 lg:gap-4 md:col-span-2 lg:col-span-1 ${fill}`}>
+            <ComingUp plan={weeklyPlan} fresh={fresh} onOpen={r => onOpenRecipe(r)} onPlanWeek={() => onNavigate(View.Dashboard)}
+              className="lg:flex-1 lg:min-h-0 flex flex-col" bodyClassName="lg:flex-1 lg:min-h-0 lg:overflow-y-auto" />
+            <GardenCard compact className="shrink-0" />
+          </div>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mt-5">
-          {shopping}
-          {comingUp}
-          <div className="md:col-span-2 lg:col-span-1">{notesPanel}</div>
-        </div>
-      )}
+        {notesPanel && <div className="mt-5">{notesPanel}</div>}
+        {picking && (
+          <RecipePicker
+            title="Tonight's dinner"
+            recipes={recipes}
+            onSelect={(r: Recipe) => { onAddMeal(today, r); setPicking(false); }}
+            onClose={() => setPicking(false)}
+          />
+        )}
+      </div>
+    );
+  }
+
+  const shopping = <ShoppingCard left={shoppingLeft} onAdd={onAddShoppingItem} onOpen={() => onNavigate(View.ShoppingList)} />;
+  const comingUp = <ComingUp plan={weeklyPlan} fresh={fresh} onOpen={r => onOpenRecipe(r)} onPlanWeek={() => onNavigate(View.Dashboard)} />;
+
+  return (
+    <div className="pb-20">
+      <Masthead events={events} />
+      {tonightCard()}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mt-5">
+        {shopping}
+        {comingUp}
+        {notesPanel && <div className="md:col-span-2 lg:col-span-1">{notesPanel}</div>}
+      </div>
 
       {picking && (
         <RecipePicker

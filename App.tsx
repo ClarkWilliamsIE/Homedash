@@ -815,7 +815,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
       )}
 
       <main ref={mainRef} className={`flex-1 min-h-0 overflow-y-auto ${isPhone ? 'px-4 pb-6 pt-safe-4' : embedded ? 'p-6' : 'p-6 lg:p-10'}`}>
-        <div className="max-w-[1400px] mx-auto">{content}</div>
+        <div className="max-w-[1400px] mx-auto h-full">{content}</div>
       </main>
 
       {status && !isPhone && <div className="absolute top-3 right-5 z-30">{statusChip}</div>}

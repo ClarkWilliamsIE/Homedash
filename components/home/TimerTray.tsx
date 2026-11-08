@@ -94,7 +94,7 @@ const TimerTray: React.FC = () => {
   };
 
   return (
-    <div className={`fixed z-[150] flex flex-col items-end gap-3 pointer-events-none ${isPhone ? 'bottom-[5.5rem] right-3 left-3' : 'bottom-5 right-5'}`}>
+    <div className={`fixed z-[150] flex flex-col gap-3 pointer-events-none ${isPhone ? 'items-end bottom-[5.5rem] right-3 left-3' : 'items-start bottom-4 left-2.5'}`}>
       {timers.map(t => <TimerPill key={t.id} t={t} now={now} />)}
       {picker && (
         <div className="pointer-events-auto bg-white rounded-3xl shadow-2xl border border-slate-100 p-4 w-72">
@@ -115,9 +115,9 @@ const TimerTray: React.FC = () => {
       {!isPhone && <button
         onClick={() => setPicker(p => !p)}
         aria-label="Timers"
-        className={`pointer-events-auto h-14 rounded-full shadow-xl flex items-center gap-2 font-bold transition-colors ${picker ? 'bg-slate-900 text-white px-5' : 'bg-white text-slate-700 border border-slate-200 px-5'}`}
+        className={`pointer-events-auto w-[4.5rem] h-[4.25rem] rounded-2xl flex flex-col items-center justify-center gap-1 text-xs font-semibold transition-colors ${picker ? 'bg-white text-slate-900' : 'bg-white/10 text-white hover:bg-white/20'}`}
       >
-        <HomeIcons.Timer className="w-5 h-5" /> {picker ? 'Close' : 'Timer'}
+        <HomeIcons.Timer className="w-6 h-6" /> {picker ? 'Close' : 'Timer'}
       </button>}
     </div>
   );

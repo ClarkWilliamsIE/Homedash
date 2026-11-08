@@ -52,8 +52,9 @@ const when = (t: number, range: Range) => new Date(t).toLocaleString('en-NZ', ra
   : { weekday: 'short', hour: 'numeric' });
 
 /** A single-series line chart with a hover crosshair and tooltip. */
-const MiniChart: React.FC<{ points: Point[] | null; color: string; unit: string; range: Range; label: string; fixedMax?: number }> = ({ points, color, unit, range, label, fixedMax }) => {
-  const W = 320, H = 96, PAD = { l: 30, r: 8, t: 8, b: 18 };
+const MiniChart: React.FC<{ points: Point[] | null; color: string; unit: string; range: Range; label: string; fixedMax?: number; short?: boolean }> = ({ points, color, unit, range, label, fixedMax, short }) => {
+  const W = short ? 200 : 320, H = short ? 64 : 96, PAD = short ? { l: 24, r: 4, t: 6, b: 14 } : { l: 30, r: 8, t: 8, b: 18 };
+  const hCls = short ? 'h-16' : 'h-24';
   const box = useRef<SVGSVGElement>(null);
   const [hover, setHover] = useState<number | null>(null);
 
@@ -70,8 +71,8 @@ const MiniChart: React.FC<{ points: Point[] | null; color: string; unit: string;
     return { lo, hi, x, y, d, t0, t1 };
   }, [points, fixedMax]);
 
-  if (!points) return <div className="h-24 rounded-xl bg-slate-50 animate-pulse" />;
-  if (!geo) return <p className="h-24 flex items-center justify-center text-sm text-slate-500 rounded-xl bg-slate-50">Not enough readings yet</p>;
+  if (!points) return <div className={`${hCls} rounded-xl bg-slate-50 animate-pulse`} />;
+  if (!geo) return <p className={`${hCls} flex items-center justify-center text-sm text-slate-500 rounded-xl bg-slate-50`}>Not enough readings yet</p>;
 
   const onMove = (e: React.PointerEvent) => {
     const r = box.current!.getBoundingClientRect();
@@ -85,7 +86,7 @@ const MiniChart: React.FC<{ points: Point[] | null; color: string; unit: string;
 
   return (
     <div className="relative">
-      <svg ref={box} viewBox={`0 0 ${W} ${H}`} className="w-full h-24 touch-none select-none" role="img"
+      <svg ref={box} viewBox={`0 0 ${W} ${H}`} className={`w-full ${hCls} touch-none select-none`} role="img"
         aria-label={`${label} over the last ${range === '24h' ? 'day' : 'week'}, from ${points[0].v}${unit} to ${points[points.length - 1].v}${unit}`}
         onPointerMove={onMove} onPointerDown={onMove} onPointerLeave={() => setHover(null)}>
         {[geo.lo, mid, geo.hi].map(v => (
@@ -118,7 +119,7 @@ const MiniChart: React.FC<{ points: Point[] | null; color: string; unit: string;
 const soilWords = (m: number | null) =>
   m === null ? '' : m < 20 ? 'Dry, time to water' : m < 35 ? 'Getting dry' : m < 70 ? 'Nicely damp' : 'Very wet';
 
-const GardenCard: React.FC = () => {
+const GardenCard: React.FC<{ compact?: boolean; className?: string }> = ({ compact, className = '' }) => {
   const moist = useEntity(MOISTURE);
   const temp = useEntity(TEMP);
   const battery = useEntity(BATTERY);
@@ -133,6 +134,7 @@ const GardenCard: React.FC = () => {
 
   return (
     <Panel
+      className={className}
       title="Vege garden"
       action={
         <div className="flex rounded-xl bg-slate-100 p-0.5" role="group" aria-label="Chart range">
@@ -145,7 +147,22 @@ const GardenCard: React.FC = () => {
         </div>
       }
     >
-      {offline ? (
+      {compact && !offline ? (
+        <div className="grid grid-cols-2 gap-4">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-600 flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: BLUE }} />Soil</p>
+            <p className="font-display text-3xl text-slate-900 tabular-nums leading-tight">{m === null ? '–' : `${Math.round(m)}%`}</p>
+            <p className="text-xs text-slate-500 truncate h-4">{soilWords(m)}</p>
+            <div className="mt-1"><MiniChart short points={mHist} color={BLUE} unit="%" range={range} label="Soil moisture" fixedMax={100} /></div>
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-600 flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: CLAY }} />Temperature</p>
+            <p className="font-display text-3xl text-slate-900 tabular-nums leading-tight">{t === null ? '–' : `${t.toFixed(1)}°`}</p>
+            <p className="text-xs text-slate-500 h-4">{b !== null && b < 20 ? `Battery low (${Math.round(b)}%)` : ''}</p>
+            <div className="mt-1"><MiniChart short points={tHist} color={CLAY} unit="°" range={range} label="Garden temperature" /></div>
+          </div>
+        </div>
+      ) : offline ? (
         <p className="text-slate-500">The garden sensor hasn't checked in. It may be asleep or need new batteries.</p>
       ) : (
         <div className="space-y-5">
