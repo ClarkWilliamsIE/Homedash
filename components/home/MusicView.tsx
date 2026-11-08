@@ -7,6 +7,7 @@ import { Card } from './controls';
 import { HomeIcons } from './icons';
 import { AlsoPlaying, NowPlaying, ProfileGrid, SpeakerMixer } from './music';
 import MusicBrowser from './MusicBrowser';
+import Jukebox from './Jukebox';
 
 const SOURCES = HOME.music.sources as unknown as Source[];
 const SPEAKERS = HOME.music.speakers;
@@ -101,6 +102,8 @@ const MusicView: React.FC = () => (
       <NowPlaying large />
       <div className="mt-6 empty:hidden"><AlsoPlaying /></div>
     </Card>
+
+    <Jukebox />
 
     <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-6">
       <Card title="Speakers">
