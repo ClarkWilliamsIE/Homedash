@@ -3,7 +3,7 @@
 // tap to put something in the trolley, and "Finish shop" when you're done.
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { WeeklyPlan } from '../types';
+import { Recipe, WeeklyPlan } from '../types';
 import type { ManualItem } from '../lib/merge';
 import { AddItemBar, Btn, Icon, PageTitle } from './ui';
 
@@ -59,18 +59,46 @@ export const aisleFor = (name: string): string => {
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** Recipe ingredients for the week that still need buying: name → the meals that use it. */
-const recipeNeeds = (weeklyPlan: WeeklyPlan, hidden: string[], cleared: string[]) => {
+/** What's been bought is remembered per planned meal ("this meal's onions"), not per ingredient
+ *  name, so adding another meal that needs onions puts onions back on the list straight away. */
+export const mealKey = (r: Recipe) => `${r.id}@${r.plannedFor || ''}`;
+export const boughtKey = (r: Recipe, ingredient: string) => `${mealKey(r)}|${ingredient}`;
+
+/** Ingredient → meals that still need it, plus the keys to mark them bought. */
+const recipeNeedsWithKeys = (weeklyPlan: WeeklyPlan, hidden: string[], cleared: string[]) => {
   const list = new Map<string, string[]>();
+  const keys = new Map<string, string[]>();
+  const bought = new Set(cleared);
   Object.values(weeklyPlan).flat().forEach(recipe => {
     recipe.ingredients.forEach(ing => {
       const clean = ing.item.toLowerCase().trim();
-      if (!clean || hidden.includes(clean) || cleared.includes(clean)) return;
-      const uses = list.get(clean) || [];
-      uses.push(recipe.name);
-      list.set(clean, uses);
+      if (!clean || hidden.includes(clean)) return;
+      const key = boughtKey(recipe, clean);
+      if (bought.has(key)) return;
+      list.set(clean, [...(list.get(clean) || []), recipe.name]);
+      keys.set(clean, [...(keys.get(clean) || []), key]);
     });
   });
-  return list;
+  return { list, keys };
+};
+const recipeNeeds = (weeklyPlan: WeeklyPlan, hidden: string[], cleared: string[]) => recipeNeedsWithKeys(weeklyPlan, hidden, cleared).list;
+
+/** Keep the "bought" list tidy: drop meals no longer on the plan, and turn any old-style entries
+ *  (just an ingredient name) into this week's meals that use it. Returns the same array if unchanged. */
+export const tidyBought = (weeklyPlan: WeeklyPlan, cleared: string[]): string[] => {
+  const meals = Object.values(weeklyPlan).flat();
+  const live = new Set(meals.map(mealKey));
+  const out: string[] = [];
+  let changed = false;
+  for (const entry of cleared) {
+    if (entry.includes('|')) {
+      if (live.has(entry.split('|')[0])) out.push(entry); else changed = true;
+      continue;
+    }
+    changed = true;
+    meals.forEach(m => { if (m.ingredients.some(i => i.item.toLowerCase().trim() === entry)) out.push(boughtKey(m, entry)); });
+  }
+  return changed ? [...new Set(out)] : cleared;
 };
 
 /** How many things are still to get (shown as the badge on the Shopping tab). */
@@ -131,7 +159,8 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
   const undoTimer = useRef<any>(null);
   const syncTimeout = useRef<any>(null);
 
-  const needs = useMemo(() => recipeNeeds(weeklyPlan, hiddenIngredients, clearedIngredients), [weeklyPlan, hiddenIngredients, clearedIngredients]);
+  const needsInfo = useMemo(() => recipeNeedsWithKeys(weeklyPlan, hiddenIngredients, clearedIngredients), [weeklyPlan, hiddenIngredients, clearedIngredients]);
+  const needs = needsInfo.list;
 
   // Keep the "ShoppingList" tab of the Google Sheet up to date (handy for printing).
   useEffect(() => {
@@ -157,7 +186,6 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
   }, [needs, manualItems, authToken, spreadsheetId]);
 
   const addItem = (name: string) => {
-    onUpdateCleared(clearedIngredients.filter(i => i !== name.toLowerCase()));
     onUpdateItems([...manualItems, { id: Date.now().toString(), name: cap(name), checked: false }]);
   };
 
@@ -193,7 +221,9 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
   const finishShop = () => {
     const snapshot = { items: manualItems, cleared: clearedIngredients, checked: checkedIngredients, count: inTrolley.length };
     onUpdateItems(manualItems.filter(i => !i.checked));
-    onUpdateCleared([...clearedIngredients, ...checkedIngredients]);
+    // Mark the ticked ingredients bought for the meals that needed them (not for future meals).
+    const boughtNow = checkedIngredients.flatMap(name => needsInfo.keys.get(name) || []);
+    onUpdateCleared([...new Set([...clearedIngredients, ...boughtNow])]);
     onUpdateChecked([]);
     setUndo(snapshot);
     clearTimeout(undoTimer.current);
@@ -208,8 +238,9 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
   };
 
   const restoreWeeklyItems = () => {
-    if (confirm("Put back everything you've already bought for this week's meals?")) onUpdateCleared([]);
+    if (confirm("Put back everything you've already bought for the planned meals?")) onUpdateCleared([]);
   };
+  const boughtCount = new Set(clearedIngredients.map(k => k.split('|').pop())).size;
 
   // Pantry items: ingredients you usually have, so recipes don't add them.
   // Pantry items: ingredients you usually have, so recipes don't add them. Items tidied out of this
@@ -340,7 +371,7 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
       {clearedIngredients.length > 0 && (
         <p className="text-center mt-6">
           <button onClick={restoreWeeklyItems} className="text-sm font-semibold text-slate-500 hover:text-indigo-700 underline underline-offset-4">
-            Put back {clearedIngredients.length} item{clearedIngredients.length === 1 ? '' : 's'} already bought this week
+            Put back {boughtCount} item{boughtCount === 1 ? '' : 's'} already bought for planned meals
           </button>
         </p>
       )}

@@ -7,7 +7,7 @@ import { AuthState, View, Recipe, CalendarEvent, WeeklyPlan, FamilyNote, Ingredi
 import { ROOT_FOLDER_ID } from './constants';
 import WeekPlanner from './components/WeekPlanner';
 import RecipeBook from './components/RecipeBook';
-import ShoppingList, { openItemCount } from './components/ShoppingList';
+import ShoppingList, { openItemCount, tidyBought } from './components/ShoppingList';
 import HomeScreen from './components/home/HomeScreen';
 import LightsView from './components/home/LightsView';
 import MusicView from './components/home/MusicView';
@@ -583,8 +583,6 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
 
   const addManualItem = (name: string) => {
     recordItem(name);
-    const clean = name.toLowerCase().split('(')[0].trim();
-    setClearedIngredients(prev => prev.filter(i => i !== clean));
     setManualItems(prev => [...prev, { id: Date.now().toString(), name: name, checked: false }]);
   };
 
@@ -624,6 +622,10 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   useEffect(() => {
     setWeeklyPlan(p => tidyPlan(p));
   }, [weeklyPlan, todayKey]);
+  // "Already bought" is kept per planned meal; forget meals that have come off the plan.
+  useEffect(() => {
+    setClearedIngredients(c => tidyBought(weeklyPlan, c));
+  }, [weeklyPlan, clearedIngredients]);
   const addNote = (text: string) => setNotes(prev => [{ id: Date.now().toString(), text, color: 'bg-yellow-100' }, ...prev]);
   const removeNote = (id: string) => setNotes(prev => prev.filter(n => n.id !== id));
 
