@@ -1,7 +1,7 @@
 // components/home/music.tsx
 import React from 'react';
 import { HOME } from '../../home.config';
-import { callService, hassAsset, runScript, useEntities, useEntity, HassEntity } from '../../lib/hass';
+import { callService, hassAsset, hassStore, runScript, useEntities, useEntity, HassEntity } from '../../lib/hass';
 import { FillSlider, Switch } from './controls';
 import { TONE_STYLES, useSettings } from '../../lib/settings';
 import { HomeIcons } from './icons';
@@ -49,6 +49,52 @@ export const describeMedia = (e?: HassEntity): { title?: string; artist?: string
   return { title: a.source, artist: a.media_artist };
 };
 
+// Album art. Music Assistant gives a direct link to itself on the home network
+// (http://192.168.x.x:8095/…), which the iPad and phones often can't open (and a secure page
+// won't load at all). Home Assistant can fetch it for us, so ask it for the picture instead.
+const artCache = new Map<string, string>();
+const artWaiting = new Map<string, Promise<string | undefined>>();
+const fetchArt = (entityId: string, pic: string) => {
+  const key = `${entityId}|${pic}`;
+  if (artCache.has(key)) return Promise.resolve(artCache.get(key));
+  if (!artWaiting.has(key)) {
+    const h: any = hassStore.get();
+    const p = (h?.fetchWithAuth
+      ? h.fetchWithAuth(`/api/media_player_proxy/${entityId}?cache=${encodeURIComponent(pic.slice(-24))}`)
+          .then((r: Response) => (r.ok ? r.blob() : null))
+          .then((b: Blob | null) => {
+            if (!b || !b.type.startsWith('image/')) return pic;
+            const url = URL.createObjectURL(b);
+            artCache.set(key, url);
+            if (artCache.size > 40) { const [k, v] = artCache.entries().next().value!; URL.revokeObjectURL(v); artCache.delete(k); }
+            return url;
+          })
+          .catch(() => pic)
+      : Promise.resolve(pic)
+    ).finally(() => artWaiting.delete(key));
+    artWaiting.set(key, p);
+  }
+  return artWaiting.get(key)!;
+};
+
+/** A picture URL the page can show for this player's album art. */
+export const useArt = (e?: HassEntity | null) => {
+  const pic: string | undefined = e?.attributes.entity_picture;
+  const id = e?.entity_id;
+  const absolute = !!pic && /^https?:/.test(pic);
+  const [url, setUrl] = React.useState<string | undefined>(() => (absolute && id ? artCache.get(`${id}|${pic}`) : undefined));
+  React.useEffect(() => {
+    if (!pic || !id || !absolute) { setUrl(undefined); return; }
+    let live = true;
+    const hit = artCache.get(`${id}|${pic}`);
+    if (hit) { setUrl(hit); return; }
+    fetchArt(id, pic).then(u => { if (live) setUrl(u); });
+    return () => { live = false; };
+  }, [id, pic, absolute]);
+  if (!pic) return undefined;
+  return absolute ? url : hassAsset(pic);
+};
+
 /** Album art, title and controls for whichever of our speakers is playing (the group first). */
 /** Which player the big "Now playing" shows: the group first, then any speaker that's playing. */
 export const useMainPlayer = () => {
@@ -81,7 +127,7 @@ export const NowPlaying: React.FC<{ large?: boolean }> = ({ large }) => {
   const whereName = main?.entity === where.entity ? main.name : where.name;
   const playing = current?.state === 'playing';
   const active = playing || current?.state === 'paused';
-  const art = hassAsset(current?.attributes.entity_picture);
+  const art = useArt(current);
   const info = active ? describeMedia(current) : {};
   const title = info.title;
   const artist = info.artist;
@@ -422,6 +468,11 @@ const StreamSpeakers: React.FC<{ stream: Stream }> = ({ stream }) => {
   );
 };
 
+const ArtThumb: React.FC<{ e: HassEntity }> = ({ e }) => {
+  const art = useArt(e);
+  return art ? <img src={art} alt="" className="w-full h-full object-cover" /> : <HomeIcons.Music className="w-5 h-5 text-slate-400" />;
+};
+
 /** Things playing besides the main "Now playing" (Lilly's story in the family room while the
  *  kitchen has music, say), each with its own speaker buttons. Shows nothing otherwise. */
 export const AlsoPlaying: React.FC<{ compact?: boolean }> = ({ compact }) => {
@@ -435,13 +486,12 @@ export const AlsoPlaying: React.FC<{ compact?: boolean }> = ({ compact }) => {
         {others.map(st => {
           const e = st.state;
           const playing = e.state === 'playing';
-          const art = hassAsset(e.attributes.entity_picture);
           const info = describeMedia(e);
           return (
             <li key={st.entity} className="p-2 rounded-2xl bg-slate-50">
               <div className="flex items-center gap-3">
                 <span className={`${compact ? 'w-11 h-11' : 'w-14 h-14'} rounded-xl overflow-hidden bg-slate-200 flex items-center justify-center shrink-0`}>
-                  {art ? <img src={art} alt="" className="w-full h-full object-cover" /> : <HomeIcons.Music className="w-5 h-5 text-slate-400" />}
+                  <ArtThumb e={e} />
                 </span>
                 <span className="flex-1 min-w-0">
                   <span className="block text-sm text-slate-500 truncate">{playing ? 'Playing' : 'Paused'} in {st.name}</span>

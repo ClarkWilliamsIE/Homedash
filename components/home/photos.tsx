@@ -2,7 +2,7 @@
 // Family photos: a card on the home screen, a full-screen viewer, the kitchen iPad's photo
 // frame (when nobody's using it), and the Settings section for adding and removing photos.
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CalendarEvent, WeeklyPlan } from '../../types';
 import { callService, useEntities, useEntity } from '../../lib/hass';
 import { useSettings } from '../../lib/settings';
@@ -237,7 +237,28 @@ export const PhotoFrame: React.FC<{ weeklyPlan: WeeklyPlan; events?: CalendarEve
   const timerRunning = timers.some(t => t.done || t.endsAt);
   const active = frame.enabled && idle && !nightTime && !timerRunning && !!photos?.length;
   const { photo } = useSlideshow(active ? photos : null, 15, !active);
-  if (!active) return null;
+
+  // The tap that wakes the iPad must only close the photos. Without this, the tap's click lands
+  // on whatever is underneath (a light, a play button) once the photos have gone.
+  const [shield, setShield] = useState(false);
+  const wasActive = useRef(false);
+  useLayoutEffect(() => {
+    if (wasActive.current && !active) {
+      setShield(true);
+      const block = (e: Event) => { e.preventDefault(); e.stopPropagation(); };
+      const evs = ['click', 'pointerup', 'mouseup', 'touchend'];
+      evs.forEach(ev => window.addEventListener(ev, block, { capture: true }));
+      const t = setTimeout(() => {
+        evs.forEach(ev => window.removeEventListener(ev, block, { capture: true }));
+        setShield(false);
+      }, 700);
+      wasActive.current = active;
+      return () => { clearTimeout(t); evs.forEach(ev => window.removeEventListener(ev, block, { capture: true })); setShield(false); };
+    }
+    wasActive.current = active;
+  }, [active]);
+
+  if (!active) return shield ? <div className="fixed inset-0 z-[290]" aria-hidden="true" /> : null;
 
   const dinner = weeklyPlan[DAYS[now.getDay()]]?.[0];
   // The next thing on the calendar: later today, else tomorrow.
@@ -278,7 +299,7 @@ export const PhotoFrame: React.FC<{ weeklyPlan: WeeklyPlan; events?: CalendarEve
     <div className="fixed inset-0 z-[290] bg-black cursor-pointer select-none" onPointerDown={() => setLastTouch(Date.now())}>
       <Crossfade photo={photo} />
       {photoCaption(photo) && (
-        <p className="absolute top-6 right-8 text-sm font-medium text-white/70 [text-shadow:0_1px_6px_rgba(0,0,0,.5)]">{photoCaption(photo)}</p>
+        <p className="absolute top-6 left-8 text-sm font-medium text-white/70 [text-shadow:0_1px_6px_rgba(0,0,0,.5)]">{photoCaption(photo)}</p>
       )}
       <div className="absolute inset-x-0 bottom-0 h-72 bg-gradient-to-t from-black/60 via-black/25 to-transparent pointer-events-none" />
       <div className="absolute inset-x-0 bottom-0 px-10 pb-9 flex items-end justify-between gap-10 text-white [text-shadow:0_1px_8px_rgba(0,0,0,.35)]">

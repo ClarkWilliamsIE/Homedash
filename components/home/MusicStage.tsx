@@ -10,7 +10,7 @@ import { friendlyError, playSource, Source } from '../../lib/musicLibrary';
 import { HomeIcons } from './icons';
 import {
   MasterVolume, PLAYERS, SPEAKERS, ShuffleButton, VolumeStepper, describeMedia, inStream, media,
-  playingOutsideMA, setOverride, setSpeakerIn, useMainPlayer, useOverrideVersion, useStreams,
+  playingOutsideMA, setOverride, useArt, setSpeakerIn, useMainPlayer, useOverrideVersion, useStreams,
 } from './music';
 
 const SOURCES = HOME.music.sources as unknown as Source[];
@@ -179,7 +179,7 @@ const MusicStage: React.FC<{ children?: React.ReactNode }> = ({ children }) => {
   const whereName = whereRaw.charAt(0).toUpperCase() + whereRaw.slice(1);
   const playing = current?.state === 'playing';
   const active = playing || current?.state === 'paused';
-  const art = active ? hassAsset(current?.attributes.entity_picture) : undefined;
+  const art = useArt(active ? current : undefined);
   const info = active ? describeMedia(current) : {};
   const album = active ? current?.attributes.media_album_name : undefined;
   const progress = useProgress(active ? current : undefined);
