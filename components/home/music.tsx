@@ -277,7 +277,7 @@ export const MasterVolume: React.FC<{ compact?: boolean; dark?: boolean }> = ({ 
 };
 
 /** Turn shuffle on or off for whatever is playing. */
-export const ShuffleButton: React.FC<{ entityId: string; className?: string }> = ({ entityId, className = '' }) => {
+export const ShuffleButton: React.FC<{ entityId: string; className?: string; dark?: boolean }> = ({ entityId, className = '', dark }) => {
   const e = useEntity(entityId);
   const on = !!e?.attributes.shuffle;
   const active = e?.state === 'playing' || e?.state === 'paused';
@@ -287,7 +287,7 @@ export const ShuffleButton: React.FC<{ entityId: string; className?: string }> =
       aria-pressed={on}
       disabled={!active}
       onClick={() => media('shuffle_set', entityId, { shuffle: !on })}
-      className={`w-10 h-10 rounded-full flex items-center justify-center disabled:opacity-30 ${on ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100'} ${className}`}
+      className={`${dark ? 'w-12 h-12' : 'w-10 h-10'} rounded-full flex items-center justify-center disabled:opacity-30 ${dark ? (on ? 'bg-white/15 text-amber-200' : 'text-white/75 hover:bg-white/10') : on ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100'} ${className}`}
     >
       <HomeIcons.Shuffle className="w-5 h-5" />
     </button>

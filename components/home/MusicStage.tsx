@@ -73,12 +73,12 @@ const PutOn: React.FC = () => {
 
   return (
     <div className="relative">
-      <div className="flex flex-wrap md:justify-end gap-2">
+      <div className="flex md:flex-wrap md:justify-end gap-2 overflow-x-auto no-scrollbar -mx-6 px-6 md:mx-0 md:px-0">
         {SOURCES.map(s => {
           const on = open === s.name;
           return (
             <button key={s.name} aria-expanded={on} onClick={() => { setOpen(on ? null : s.name); setMsg(null); }}
-              className={`h-10 px-4 rounded-full text-[15px] font-semibold border flex items-center gap-2 transition-colors ${on ? 'bg-white text-slate-950 border-white' : 'bg-white/10 text-white border-white/25 hover:bg-white/15'}`}>
+              className={`shrink-0 whitespace-nowrap h-10 px-4 rounded-full text-[15px] font-semibold border flex items-center gap-2 transition-colors ${on ? 'bg-white text-slate-950 border-white' : 'bg-white/10 text-white border-white/25 hover:bg-white/15'}`}>
               {s.mediaType === 'radio' ? <HomeIcons.Radio className="w-4 h-4" /> : <HomeIcons.Music className="w-4 h-4" />}
               {s.name}
             </button>
@@ -191,16 +191,16 @@ const MusicStage: React.FC<{ children?: React.ReactNode }> = ({ children }) => {
   const second = [info.artist, album && album !== info.title ? `from ${album}` : ''].filter(Boolean).join(', ');
 
   return (
-    <section aria-label="Now playing" className="relative isolate overflow-hidden rounded-[2rem] bg-slate-950 text-white">
+    <section aria-label="Now playing" className="relative isolate overflow-hidden rounded-[2rem] [clip-path:inset(0_round_2rem)] bg-[#171410] text-white">
       {/* Backdrop: the cover, blurred right out, then darkened so the text reads */}
-      <div aria-hidden="true" className="absolute inset-0 -z-10">
+      <div aria-hidden="true" className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
         {showArt
           ? <img key={art} src={art} alt="" className="absolute inset-0 w-full h-[34rem] object-cover scale-125 blur-3xl opacity-70 saturate-150" />
           : <div className="absolute inset-x-0 top-0 h-[30rem] bg-indigo-700 blur-3xl opacity-50 scale-110" />}
-        <div className="absolute inset-0 bg-gradient-to-b from-slate-950/10 via-slate-950/70 via-55% to-slate-950 to-75%" />
+        <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(23,20,16,0.15) 0%, rgba(23,20,16,0.72) 55%, #171410 75%)' }} />
       </div>
 
-      <div className="p-6 lg:p-9 space-y-7">
+      <div className="relative z-10 p-6 lg:p-9 space-y-7 [transform:translateZ(0)]">
         <div className="flex flex-col md:flex-row gap-6 lg:gap-10 md:items-end">
           <div className="w-56 h-56 lg:w-80 lg:h-80 shrink-0 rounded-xl overflow-hidden bg-white/10 shadow-[0_30px_60px_rgba(0,0,0,0.5)] flex items-center justify-center">
             {showArt
@@ -234,7 +234,7 @@ const MusicStage: React.FC<{ children?: React.ReactNode }> = ({ children }) => {
             )}
 
             <div className={`${progress ? 'mt-3' : 'mt-6'} flex flex-wrap items-center gap-3`}>
-              <ShuffleButton entityId={target} className="!w-12 !h-12 !text-white/75 hover:!bg-white/10 aria-pressed:!bg-white/15 aria-pressed:!text-amber-200" />
+              <ShuffleButton entityId={target} dark />
               <button aria-label="Previous" disabled={!active} onClick={() => media('media_previous_track', target)}
                 className="w-14 h-14 rounded-full flex items-center justify-center hover:bg-white/10 disabled:opacity-30"><HomeIcons.Prev className="w-7 h-7" /></button>
               <button aria-label={playing ? 'Pause' : 'Play'} disabled={!active} onClick={() => media('media_play_pause', target)}
