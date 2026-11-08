@@ -160,7 +160,30 @@ export const SpeakerRow: React.FC<{ entityId: string; name: string }> = ({ entit
 
 /** One slider for every speaker that's playing. It keeps the mood's balance (kitchen louder than
  *  the stereo, say) and turns them all up or down together. */
-export const MasterVolume: React.FC = () => {
+/** Volume as − and + buttons (5% a press): easier than a small slider on the kitchen iPad.
+ *  The number updates straight away; the speakers catch up a moment later. */
+export const VolumeStepper: React.FC<{ value: number; onSet: (pct: number) => void; label: string; disabled?: boolean; big?: boolean }> = ({ value, onSet, label, disabled, big }) => {
+  const [pending, setPending] = React.useState<number | null>(null);
+  const timer = React.useRef<any>(null);
+  const shown = pending ?? value;
+  const step = (d: number) => {
+    const next = Math.max(0, Math.min(100, Math.round((shown + d) / 5) * 5));
+    setPending(next);
+    onSet(next);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setPending(null), 2500);
+  };
+  const btn = `${big ? 'w-12 h-11 text-xl' : 'w-10 h-9 text-lg'} rounded-xl bg-slate-100 text-slate-700 font-semibold flex items-center justify-center active:bg-slate-200 disabled:opacity-40`;
+  return (
+    <div className="flex items-center gap-1.5" role="group" aria-label={label}>
+      <button className={btn} disabled={disabled || shown <= 0} onClick={() => step(-5)} aria-label={`${label} down`}>−</button>
+      <span className={`${big ? 'w-12 text-lg' : 'w-10'} text-center font-semibold tabular-nums text-slate-800`} aria-live="polite">{shown}</span>
+      <button className={btn} disabled={disabled || shown >= 100} onClick={() => step(5)} aria-label={`${label} up`}>+</button>
+    </div>
+  );
+};
+
+export const MasterVolume: React.FC<{ compact?: boolean }> = ({ compact }) => {
   const speakers = HOME.music.speakers;
   const states = useEntities(speakers.map(s => s.entity));
   // Only the speakers playing the main music (not, say, Lilly's story in another room).
@@ -182,13 +205,20 @@ export const MasterVolume: React.FC = () => {
   if (!targets.length) return null;
   return (
     <div className="flex items-center gap-2">
-      <FillSlider
-        className="h-11 flex-1"
-        tone="indigo"
-        value={allMuted ? 0 : Math.round(top * 100)}
-        onCommit={setAll}
-        label="Master volume"
-      />
+      {compact ? (
+        <>
+          <span className="flex-1 font-semibold text-slate-700">Volume</span>
+          <VolumeStepper big value={allMuted ? 0 : Math.round(top * 100)} onSet={setAll} label="Master volume" />
+        </>
+      ) : (
+        <FillSlider
+          className="h-11 flex-1"
+          tone="indigo"
+          value={allMuted ? 0 : Math.round(top * 100)}
+          onCommit={setAll}
+          label="Master volume"
+        />
+      )}
       <button
         aria-label={allMuted ? 'Unmute all' : 'Mute all'}
         onClick={() => targets.forEach(t => media('volume_mute', t.entity, { is_volume_muted: !allMuted }))}
@@ -349,16 +379,23 @@ export const SpeakerMixer: React.FC<{ compact?: boolean }> = ({ compact }) => {
             <span className={cantJoin && !on ? 'opacity-40' : ''}>
               <Switch on={on} tone="indigo" label={`${sp.name} on or off`} onToggle={() => { if (!offline && !(cantJoin && !on)) toggle(i); }} />
             </span>
-            <span className={`shrink-0 ${compact ? 'w-24 text-sm' : 'w-28'} font-semibold truncate ${on ? 'text-slate-900' : 'text-slate-500'}`}>{sp.name}</span>
-            <FillSlider
-              className={`${compact ? 'h-9' : 'h-10'} flex-1`}
-              tone="indigo"
-              disabled={offline}
-              value={muted ? 0 : vol}
-              onCommit={v => media('volume_set', outside(i) ? sp.direct! : sp.entity, { volume_level: v / 100 })}
-              label=""
-            />
-            <span className="w-9 text-right text-sm tabular-nums text-slate-500">{muted ? 'Mute' : vol}</span>
+            <span className={`${compact ? 'flex-1 text-sm' : 'shrink-0 w-28'} font-semibold truncate ${on ? 'text-slate-900' : 'text-slate-500'}`}>{sp.name}</span>
+            {compact ? (
+              <VolumeStepper value={muted ? 0 : vol} disabled={offline} label={`${sp.name} volume`}
+                onSet={v => media('volume_set', outside(i) ? sp.direct! : sp.entity, { volume_level: v / 100 })} />
+            ) : (
+              <>
+                <FillSlider
+                  className="h-10 flex-1"
+                  tone="indigo"
+                  disabled={offline}
+                  value={muted ? 0 : vol}
+                  onCommit={v => media('volume_set', outside(i) ? sp.direct! : sp.entity, { volume_level: v / 100 })}
+                  label=""
+                />
+                <span className="w-9 text-right text-sm tabular-nums text-slate-500">{muted ? 'Mute' : vol}</span>
+              </>
+            )}
           </li>
         );
       })}

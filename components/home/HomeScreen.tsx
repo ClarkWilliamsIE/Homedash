@@ -49,12 +49,13 @@ const Masthead: React.FC<{ events: CalendarEvent[] }> = ({ events }) => {
   const upcoming = [...today.map(e => ({ e, when: eventTime(e) })), ...eventsOn(events, tomorrowDate).map(e => ({ e, when: `Tomorrow ${eventTime(e)}` }))].slice(0, 3);
 
   return (
-    <header className="flex flex-col md:flex-row md:items-end gap-3 md:gap-8 mb-5 md:mb-6">
+    <header className="flex flex-col md:flex-row md:items-end gap-3 md:gap-8 mb-5 lg:mb-4">
       <div className="flex-1 min-w-0">
-        <p className="text-slate-500 font-medium">{now.toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
-        <h1 className="font-display text-slate-900 leading-none mt-1 flex items-baseline gap-4 flex-wrap">
-          <span className="text-[2.6rem] md:text-6xl tabular-nums">{now.toLocaleTimeString('en-NZ', { hour: 'numeric', minute: '2-digit', hour12: true }).replace(' ', ' ')}</span>
-          <span className="hidden md:inline text-3xl text-slate-400">{greeting(now.getHours())}</span>
+        <p className="text-slate-500 font-medium lg:hidden">{now.toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+        <h1 className="font-display text-slate-900 leading-none mt-1 lg:mt-0 flex items-baseline gap-4 flex-wrap">
+          <span className="text-[2.6rem] md:text-6xl lg:text-5xl tabular-nums">{now.toLocaleTimeString('en-NZ', { hour: 'numeric', minute: '2-digit', hour12: true }).replace(' ', ' ')}</span>
+          <span className="hidden md:inline text-3xl lg:text-2xl text-slate-400">{greeting(now.getHours())}</span>
+          <span className="hidden lg:inline font-sans text-base font-medium text-slate-500">{now.toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
         </h1>
       </div>
       <div className="md:text-right text-[15px] text-slate-600 space-y-1">
@@ -82,7 +83,7 @@ const DinnerButton: React.FC = () => {
   return (
     <Btn
       size="lg"
-      className="w-full md:w-auto"
+      className="w-full md:w-auto lg:h-11 lg:px-4 lg:text-[15px]"
       variant={called ? 'secondary' : 'clay'}
       onClick={() => { callDinner(); setCalled(true); setTimeout(() => setCalled(false), 4000); }}
       icon={<HomeIcons.Bell className="w-5 h-5" />}
@@ -155,23 +156,23 @@ const Tonight: React.FC<{
   }
 
   return (
-    <section className="bg-white rounded-3xl border border-slate-200/70 shadow-sm overflow-hidden md:grid md:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
-      <button onClick={() => onOpen(main)} className="block relative bg-slate-200 aspect-[16/10] md:aspect-auto md:min-h-[19rem] w-full" aria-label={`Open ${main.name}`}>
+    <section className="bg-white rounded-3xl border border-slate-200/70 shadow-sm overflow-hidden md:grid md:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:grid-cols-[11rem_minmax(0,1fr)]">
+      <button onClick={() => onOpen(main)} className="block relative bg-slate-200 aspect-[16/10] md:aspect-auto md:min-h-[19rem] lg:min-h-[10.5rem] w-full" aria-label={`Open ${main.name}`}>
         <img src={main.imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
       </button>
-      <div className="p-5 md:p-8 flex flex-col min-w-0">
+      <div className="p-5 md:p-8 lg:px-6 lg:py-5 flex flex-col min-w-0">
         <p className="font-semibold text-orange-600">Tonight</p>
-        <h2 className="font-display text-[2rem] md:text-[2.6rem] leading-[1.1] text-slate-900 mt-1 line-clamp-3">{main.name}</h2>
+        <h2 className="font-display text-[2rem] md:text-[2.6rem] lg:text-[2rem] leading-[1.1] text-slate-900 mt-1 line-clamp-3 lg:line-clamp-1">{main.name}</h2>
         <p className="text-slate-500 mt-2">
           {[main.tags.slice(0, 2).join(', '), `${main.ingredients.length} ingredients`].filter(Boolean).join(' · ')}
         </p>
         {meals.length > 1 && <p className="text-slate-500 mt-1">Also {meals.slice(1).map(m => m.name).join(', ')}</p>}
-        <div className="mt-auto pt-6 grid grid-cols-2 md:flex md:flex-wrap gap-2">
-          <Btn size="lg" onClick={() => { if (isHome) startCooking(); onOpen(main, true); }} icon={<HomeIcons.Chef className="w-5 h-5" />}>Start cooking</Btn>
-          <Btn size="lg" variant="secondary" onClick={() => onOpen(main)}>Recipe</Btn>
+        <div className="mt-auto pt-6 lg:pt-4 grid grid-cols-2 md:flex md:flex-wrap gap-2">
+          <Btn size="lg" className="lg:h-11 lg:px-4 lg:text-[15px]" onClick={() => { if (isHome) startCooking(); onOpen(main, true); }} icon={<HomeIcons.Chef className="w-5 h-5" />}>Start cooking</Btn>
+          <Btn size="lg" className="lg:h-11 lg:px-4 lg:text-[15px]" variant="secondary" onClick={() => onOpen(main)}>Recipe</Btn>
           {isHome && <div className="col-span-2 md:contents"><DinnerButton /></div>}
         </div>
-        {isHome && whatItDoes && <p className="text-sm text-slate-500 mt-3">Start cooking {whatItDoes}.</p>}
+        {isHome && whatItDoes && <p className="text-sm text-slate-500 mt-3 lg:hidden">Start cooking {whatItDoes}.</p>}
       </div>
     </section>
   );
@@ -185,7 +186,7 @@ const LightsCard: React.FC<{ onMore: () => void }> = ({ onMore }) => {
   return (
     <Panel title="Lights" action={<MoreLink onClick={onMore}>Every light</MoreLink>} className="h-full flex flex-col" bodyClassName="flex-1 flex flex-col">
       <div className="space-y-2 flex-1">
-        {roomList.map((r, i) => <LightRow key={r.id} name={r.name} entityId={r.entity} entity={rooms[i]} />)}
+        {roomList.map((r, i) => <LightRow key={r.id} compact name={r.name} entityId={r.entity} entity={rooms[i]} />)}
       </div>
       <div className="grid grid-cols-2 gap-2 mt-3">
         <Btn
@@ -213,7 +214,7 @@ const ShoppingCard: React.FC<{ left: number; onAdd: (name: string) => void; onOp
   const timer = React.useRef<any>(null);
   return (
     <Panel title="Shopping list" action={<MoreLink onClick={onOpen}>Open</MoreLink>}>
-      <button onClick={onOpen} className="flex items-baseline gap-2 mb-4 text-left">
+      <button onClick={onOpen} className="flex items-baseline gap-2 mb-4 lg:mb-3 text-left">
         <span className="font-display text-5xl text-slate-900 leading-none">{left}</span>
         <span className="text-slate-500">{left === 1 ? 'thing to get' : 'things to get'}</span>
       </button>
@@ -224,7 +225,7 @@ const ShoppingCard: React.FC<{ left: number; onAdd: (name: string) => void; onOp
         label="Add to the shopping list"
         onAdd={name => { onAdd(name); setAdded(name); clearTimeout(timer.current); timer.current = setTimeout(() => setAdded(null), 2500); }}
       />
-      <p className="text-sm text-slate-500 mt-2 h-5">{added ? `Added ${added}` : ''}</p>
+      <p className="text-sm text-slate-500 mt-2 h-5 lg:h-auto lg:min-h-0 lg:empty:hidden">{added ? `Added ${added}` : ''}</p>
     </Panel>
   );
 };
@@ -238,7 +239,7 @@ const ComingUp: React.FC<{ plan: WeeklyPlan; fresh: (r: Recipe) => Recipe; onOpe
         {days.map(({ o, day }) => {
           const meals = (plan[day] || []).map(fresh);
           return (
-            <li key={day} className="flex items-center gap-3 py-2">
+            <li key={day} className="flex items-center gap-3 py-2 lg:py-1.5">
               <span className="w-24 shrink-0 text-slate-500">{o === 1 ? 'Tomorrow' : day}</span>
               {meals.length ? (
                 <button onClick={() => onOpen(meals[0])} className="flex-1 min-w-0 flex items-center gap-2.5 text-left">
@@ -276,31 +277,40 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     <div className="pb-20">
       <Masthead events={events} />
 
-      <Tonight
-        meals={tonight}
-        favourites={favourites}
-        onOpen={onOpenRecipe}
-        onPlan={() => setPicking(true)}
-        onQuickPlan={r => onAddMeal(today, r)}
-      />
+      {(() => {
+        const tonightCard = (
+          <Tonight
+            meals={tonight}
+            favourites={favourites}
+            onOpen={onOpenRecipe}
+            onPlan={() => setPicking(true)}
+            onQuickPlan={r => onAddMeal(today, r)}
+          />
+        );
+        // On the kitchen iPad, tonight's dinner and the shopping list share the top row.
+        return isHome ? (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 lg:gap-4">
+            <div className="lg:col-span-2">{tonightCard}</div>
+            <div className="hidden lg:block">{shopping}</div>
+          </div>
+        ) : tonightCard;
+      })()}
 
       {isHome ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mt-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 lg:gap-4 mt-5 lg:mt-4">
           <Panel title="Music" action={<MoreLink onClick={() => onNavigate(View.Music)}>Browse</MoreLink>}>
             <NowPlaying />
             <AlsoPlaying compact />
-            <div className="mt-4"><MasterVolume /></div>
-            <div className="mt-4 pt-4 border-t border-slate-100"><SpeakerMixer compact /></div>
+            <div className="mt-4 pt-3 border-t border-slate-100"><MasterVolume compact /></div>
+            <div className="mt-3"><SpeakerMixer compact /></div>
             <div className="mt-4 empty:hidden"><ProfileGrid /></div>
           </Panel>
           <LightsCard onMore={() => onNavigate(View.Lights)} />
-          <div className="flex flex-col gap-5 md:col-span-2 lg:col-span-1">
-            {shopping}
-            {notesPanel}
-          </div>
-          <div className="md:col-span-2 lg:col-span-2">{comingUp}</div>
-          <div className="md:col-span-2 lg:col-span-1"><PhotoCard /></div>
-          <div className="md:col-span-2 lg:col-span-3"><GardenCard /></div>
+          <div className="lg:hidden">{shopping}</div>
+          <div className="md:col-span-2 lg:col-span-1">{comingUp}</div>
+          <PhotoCard />
+          <GardenCard />
+          <div className="md:col-span-2 lg:col-span-1">{notesPanel}</div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mt-5">

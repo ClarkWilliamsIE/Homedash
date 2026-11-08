@@ -105,9 +105,48 @@ export const toggleLight = (entityId: string) => callService('light', 'toggle', 
 export const setBrightness = (entityId: string, pct: number) => callService('light', 'turn_on', { brightness_pct: pct }, { entity_id: entityId });
 
 /** One row: tap to toggle, slider appears while the light is on. */
-export const LightRow: React.FC<{ name: string; entity?: HassEntity; entityId: string; large?: boolean }> = ({ name, entity, entityId, large }) => {
+/** Brightness as − and + buttons (10% a press), for the compact light rows. */
+const BrightnessStepper: React.FC<{ entityId: string; value: number }> = ({ entityId, value }) => {
+  const [pending, setPending] = React.useState<number | null>(null);
+  const timer = React.useRef<any>(null);
+  const shown = pending ?? value;
+  const step = (d: number) => {
+    const next = Math.max(5, Math.min(100, Math.round((shown + d) / 10) * 10 || 5));
+    setPending(next);
+    setBrightness(entityId, next);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setPending(null), 2500);
+  };
+  const btn = 'w-9 h-9 rounded-xl bg-white/80 text-slate-700 text-lg font-semibold flex items-center justify-center active:bg-white disabled:opacity-40';
+  return (
+    <span className="flex items-center gap-1" role="group" aria-label="Brightness" onClick={e => e.stopPropagation()}>
+      <button className={btn} disabled={shown <= 5} onClick={() => step(-10)} aria-label="Dimmer">−</button>
+      <span className="w-11 text-center text-sm font-semibold tabular-nums text-slate-700">{shown}%</span>
+      <button className={btn} disabled={shown >= 100} onClick={() => step(10)} aria-label="Brighter">+</button>
+    </span>
+  );
+};
+
+export const LightRow: React.FC<{ name: string; entity?: HassEntity; entityId: string; large?: boolean; compact?: boolean }> = ({ name, entity, entityId, large, compact }) => {
   const on = entity?.state === 'on';
   const offline = !entity || entity.state === 'unavailable';
+  if (compact) {
+    // One line: tap the name to switch it, − and + for brightness.
+    return (
+      <div className={`rounded-2xl px-2.5 py-2 flex items-center gap-2.5 ${on ? 'bg-amber-50' : 'bg-slate-50'} ${offline ? 'opacity-50' : ''} transition-colors`}>
+        <button disabled={offline} onClick={() => toggleLight(entityId)} aria-pressed={on} className="flex-1 min-w-0 flex items-center gap-2.5 text-left min-h-[2.25rem]" aria-label={`${name}: turn ${on ? 'off' : 'on'}`}>
+          <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${on ? 'bg-amber-400 text-white shadow-md' : 'bg-white text-slate-400 border border-slate-200'}`}>
+            <HomeIcons.Bulb className="w-[18px] h-[18px]" />
+          </span>
+          <span className="min-w-0">
+            <span className={`block font-bold text-sm truncate ${on ? 'text-slate-800' : 'text-slate-500'}`}>{name}</span>
+            <span className="block text-[11px] font-semibold text-slate-400">{on ? 'On' : offline ? 'Offline' : 'Off'}</span>
+          </span>
+        </button>
+        {on && <BrightnessStepper entityId={entityId} value={brightnessPct(entity)} />}
+      </div>
+    );
+  }
   return (
     <div className={`rounded-2xl ${large ? 'p-3' : 'p-2.5'} ${on ? 'bg-amber-50' : 'bg-slate-50'} transition-colors`}>
       <div
