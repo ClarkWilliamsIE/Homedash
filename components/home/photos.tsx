@@ -16,6 +16,7 @@ import { Card, Switch } from './controls';
 import { HomeIcons } from './icons';
 import { inNightWindow } from './NightMode';
 import { eventsOn, eventTime } from '../../lib/calendar';
+import { binInfo } from '../BinNotifier';
 import { HOME } from '../../home.config';
 
 // --- Building blocks ----------------------------------------------------------------------
@@ -213,12 +214,13 @@ const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 
 
 /** After a few idle minutes in the daytime, the kitchen iPad shows the photos with the time,
  *  weather and tonight's dinner. Any touch brings the dashboard back. */
-export const PhotoFrame: React.FC<{ weeklyPlan: WeeklyPlan; events?: CalendarEvent[] }> = ({ weeklyPlan, events = [] }) => {
+export const PhotoFrame: React.FC<{ weeklyPlan: WeeklyPlan; events?: CalendarEvent[]; shoppingLeft?: number }> = ({ weeklyPlan, events = [], shoppingLeft = 0 }) => {
   const { frame, night } = useSettings();
   const { photos } = usePhotoList();
   const timers = useTimers();
   const weather = useWeather();
   const music = useEntities([HOME.music.group, ...HOME.music.speakers.map(s => s.entity)]);
+  const soil = useEntity('sensor.garden_soil_moisture');
   const [lastTouch, setLastTouch] = useState(Date.now());
   const [now, setNow] = useState(new Date());
 
@@ -247,11 +249,30 @@ export const PhotoFrame: React.FC<{ weeklyPlan: WeeklyPlan; events?: CalendarEve
   const time = now.toLocaleTimeString('en-NZ', { hour: 'numeric', minute: '2-digit', hour12: true }).replace(/\s?[ap]m$/i, '');
 
   // One quiet line per item: a soft label, then the thing itself.
-  const rows: { label: string; text: string }[] = [];
-  if (weather) rows.push({ label: `${weather.temp}°`, text: `${weather.condition}, high ${weather.high}°` });
+  // One quiet line per item, most useful first. Lines only appear when they matter right now,
+  // and there are never more than five, so the photo stays the main thing.
+  const rows: { label: string; text: string; warm?: boolean }[] = [];
+  if (weather) {
+    // In the evening, tomorrow's weather is the useful one.
+    rows.push(now.getHours() >= 16
+      ? { label: 'Tomorrow', text: `${weather.tomorrow.condition}, ${weather.tomorrow.low}–${weather.tomorrow.high}°` }
+      : { label: `${weather.temp}°`, text: `${weather.condition}, high ${weather.high}°` });
+  }
   if (next) rows.push({ label: nextWhen, text: next.summary });
+  const later2 = later[1];
+  if (later2) rows.push({ label: eventTime(later2), text: later2.summary });
   if (dinner) rows.push({ label: 'Dinner', text: dinner.name });
+  const bins = (() => {
+    let offset = 0;
+    try { offset = parseInt(localStorage.getItem('kapiti_bin_offset') || '0', 10) || 0; } catch { /* private mode */ }
+    return binInfo(offset, now);
+  })();
+  if (bins.tonight) rows.push({ label: 'Bins', text: `Out tonight: rubbish and ${bins.kind}`, warm: true });
+  const moist = soil ? parseFloat(soil.state) : NaN;
+  if (Number.isFinite(moist) && moist > 0 && moist < 25) rows.push({ label: 'Garden', text: `Needs water (soil ${Math.round(moist)}%)`, warm: true });
   if (playing) rows.push({ label: 'Playing', text: `${playing.attributes.media_title}${playing.attributes.media_artist ? ` · ${playing.attributes.media_artist}` : ''}` });
+  if (shoppingLeft > 0) rows.push({ label: 'Shopping', text: `${shoppingLeft} to get` });
+  const shown = rows.slice(0, 5);
 
   return (
     <div className="fixed inset-0 z-[290] bg-black cursor-pointer select-none" onPointerDown={() => setLastTouch(Date.now())}>
@@ -265,11 +286,11 @@ export const PhotoFrame: React.FC<{ weeklyPlan: WeeklyPlan; events?: CalendarEve
           <p className="text-[6.5rem] font-light tabular-nums leading-[0.9] tracking-tight">{time}</p>
           <p className="text-lg text-white/80 mt-3">{now.toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
         </div>
-        {rows.length > 0 && (
+        {shown.length > 0 && (
           <ul className="max-w-[46%] space-y-1.5 pb-1">
-            {rows.map(r => (
+            {shown.map(r => (
               <li key={r.label + r.text} className="flex items-baseline justify-end gap-3 text-right">
-                <span className="text-sm text-white/60 whitespace-nowrap shrink-0">{r.label}</span>
+                <span className={`text-sm whitespace-nowrap shrink-0 ${r.warm ? 'text-amber-200' : 'text-white/60'}`}>{r.label}</span>
                 <span className="text-lg truncate">{r.text}</span>
               </li>
             ))}
