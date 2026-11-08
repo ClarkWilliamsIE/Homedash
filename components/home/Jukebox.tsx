@@ -6,7 +6,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { HOME } from '../../home.config';
 import { hassStore } from '../../lib/hass';
 import { MediaItem, artistDetail, friendlyError, library, play } from '../../lib/musicLibrary';
-import { Card } from './controls';
 import { HomeIcons } from './icons';
 import { useStreams } from './music';
 
@@ -18,10 +17,10 @@ const letterOf = (a: MediaItem) => {
 };
 
 const Cover: React.FC<{ item: MediaItem; className?: string }> = ({ item, className = '' }) => (
-  <div className={`relative overflow-hidden bg-slate-200 ${className}`}>
+  <div className={`relative overflow-hidden bg-white/10 ${className}`}>
     {item.image
       ? <img src={item.image} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
-      : <span className="absolute inset-0 flex items-center justify-center p-3 text-center font-display text-slate-500">{item.name}</span>}
+      : <span className="absolute inset-0 flex items-center justify-center p-3 text-center font-display text-white/60">{item.name}</span>}
   </div>
 );
 
@@ -82,34 +81,34 @@ const Jukebox: React.FC = () => {
   };
 
   return (
-    <Card
-      title="Jukebox"
-      action={
+    <section aria-label="Jukebox">
+      <div className="flex flex-wrap items-center gap-4 mb-3">
+        <h2 className="font-display text-[26px] leading-tight">Jukebox</h2>
         <select value={artist} onChange={e => { setArtist(e.target.value); setPicked(null); }} aria-label="Whose albums"
-          className="h-10 max-w-[14rem] bg-slate-100 rounded-xl px-3 font-semibold text-slate-800 outline-none">
+          className="h-10 max-w-[16rem] bg-white/10 rounded-full px-4 font-semibold text-white outline-none [&>*]:text-slate-900">
           <option value={ALL}>All your albums{albums ? ` (${albums.length})` : ''}</option>
           <optgroup label="Artists you follow">
             {artists.map(a => <option key={a.uri} value={a.uri}>{a.name}</option>)}
           </optgroup>
         </select>
-      }
-    >
+        <span className="ml-auto text-sm text-white/60 hidden md:block">Flick sideways, tap a cover</span>
+      </div>
       {shown === null ? (
-        <div className="flex gap-4 overflow-hidden">{[0, 1, 2, 3, 4].map(i => <div key={i} className="w-40 h-40 shrink-0 rounded-2xl bg-slate-100 animate-pulse" />)}</div>
+        <div className="flex gap-4 overflow-hidden">{[0, 1, 2, 3, 4].map(i => <div key={i} className="w-36 h-36 shrink-0 rounded-md bg-white/10 animate-pulse" />)}</div>
       ) : shown.length === 0 ? (
-        <p className="text-slate-500">{artist === ALL ? 'No saved albums yet. Albums you save in Spotify appear here.' : 'No albums found for this artist.'}</p>
+        <p className="text-white/60">{artist === ALL ? 'No saved albums yet. Albums you save in Spotify appear here.' : 'No albums found for this artist.'}</p>
       ) : (
         <>
           {/* The shelf: flick sideways; each cover snaps into place. */}
-          <div ref={shelf} className="flex gap-4 overflow-x-auto snap-x snap-mandatory pt-2 pb-3 -mx-2 px-2 no-scrollbar" role="list">
+          <div ref={shelf} className="flex gap-[18px] overflow-x-auto snap-x snap-mandatory pt-2 pb-3 -mx-6 px-6 lg:-mx-9 lg:px-9 scroll-px-6 lg:scroll-px-9 no-scrollbar" role="list">
             {shown.map(a => {
               const on = picked?.uri === a.uri;
               return (
                 <button key={a.uri} role="listitem" onClick={() => { setPicked(on ? null : a); setMsg(null); }} aria-pressed={on}
-                  className="snap-start shrink-0 w-40 text-left group">
-                  <Cover item={a} className={`w-40 h-40 rounded-2xl shadow-sm transition-transform ${on ? 'ring-4 ring-indigo-600 ring-offset-2 ring-offset-white scale-[1.02]' : 'group-active:scale-[0.98]'}`} />
-                  <p className="mt-2 font-semibold text-slate-900 truncate">{a.name}</p>
-                  <p className="text-sm text-slate-500 truncate">{a.subtitle}</p>
+                  className="snap-start shrink-0 w-36 text-left group">
+                  <Cover item={a} className={`w-36 h-36 rounded-md shadow-[0_10px_24px_rgba(0,0,0,0.45)] transition-transform ${on ? 'ring-[3px] ring-amber-200 ring-offset-[3px] ring-offset-slate-950 -translate-y-1' : 'group-active:scale-[0.97]'}`} />
+                  <p className="mt-2 text-[15px] font-semibold text-white truncate">{a.name}</p>
+                  <p className="text-[13px] text-white/60 truncate">{a.subtitle}</p>
                 </button>
               );
             })}
@@ -118,25 +117,25 @@ const Jukebox: React.FC = () => {
           {letters.length > 1 && (
             <div className="flex flex-wrap gap-1 mt-1" aria-label="Jump to artist letter">
               {letters.map(([l, i]) => (
-                <button key={l} onClick={() => jump(i)} className="w-8 h-8 rounded-lg text-sm font-semibold text-slate-500 hover:bg-slate-100 active:bg-indigo-50">{l}</button>
+                <button key={l} onClick={() => jump(i)} className="w-8 h-8 rounded-lg text-sm font-semibold text-white/60 hover:bg-white/10 active:bg-white/20">{l}</button>
               ))}
             </div>
           )}
 
           {picked && (
-            <div className="mt-4 p-4 rounded-2xl bg-slate-50 flex items-center gap-5">
+            <div className="mt-4 p-4 rounded-2xl bg-white/10 border border-white/15 flex items-center gap-5">
               <Cover item={picked} className="w-24 h-24 rounded-xl shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="font-display text-2xl text-slate-900 truncate">{picked.name}</p>
-                <p className="text-slate-500 truncate">{picked.subtitle}</p>
+                <p className="font-display text-2xl text-white truncate">{picked.name}</p>
+                <p className="text-white/70 truncate">{picked.subtitle}</p>
                 <div className="flex flex-wrap gap-2 mt-3">
-                  <button onClick={() => go('play')} disabled={!!busy} className="h-11 px-5 rounded-xl bg-indigo-700 text-white font-semibold flex items-center gap-2 disabled:opacity-60">
+                  <button onClick={() => go('play')} disabled={!!busy} className="h-11 px-5 rounded-full bg-white text-slate-950 font-semibold flex items-center gap-2 disabled:opacity-60">
                     <HomeIcons.Play className="w-4 h-4" /> {busy === 'play' ? 'Starting…' : 'Play'}
                   </button>
-                  <button onClick={() => go('shuffle')} disabled={!!busy} className="h-11 px-4 rounded-xl bg-white border border-slate-200 text-slate-700 font-semibold flex items-center gap-2 disabled:opacity-60">
+                  <button onClick={() => go('shuffle')} disabled={!!busy} className="h-11 px-4 rounded-full border border-white/30 text-white font-semibold flex items-center gap-2 disabled:opacity-60">
                     <HomeIcons.Shuffle className="w-4 h-4" /> {busy === 'shuffle' ? 'Starting…' : 'Shuffle'}
                   </button>
-                  <button onClick={() => go('queue')} disabled={!!busy} className="h-11 px-4 rounded-xl text-slate-600 font-semibold hover:bg-white disabled:opacity-60">
+                  <button onClick={() => go('queue')} disabled={!!busy} className="h-11 px-4 rounded-full text-white/80 font-semibold hover:bg-white/10 disabled:opacity-60">
                     {busy === 'queue' ? 'Adding…' : 'Add to queue'}
                   </button>
                 </div>
@@ -145,8 +144,8 @@ const Jukebox: React.FC = () => {
           )}
         </>
       )}
-      {msg && <p className={`mt-3 text-sm font-semibold ${msg.error ? 'text-rose-700' : 'text-emerald-700'}`}>{msg.text}</p>}
-    </Card>
+      {msg && <p className={`mt-3 text-sm font-semibold ${msg.error ? 'text-orange-300' : 'text-amber-200'}`}>{msg.text}</p>}
+    </section>
   );
 };
 

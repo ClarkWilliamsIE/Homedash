@@ -83,6 +83,47 @@ const notSpotify = (e: any) => /^(podcastfeed|https?:)/.test(String(e?.attribute
 
 export interface Source { name: string; mediaId: string; mediaType: string; spotify?: boolean; fallbackUrl?: boolean }
 
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+const isSpotifyLimit = (e: any) => /simultaneous streams|one stream|only one|already playing/i.test(String(e?.message || e?.error?.message || e || ''));
+
+/**
+ * Spotify allows one stream per account. Before starting Spotify music, stop whatever else is
+ * using it: our other speakers, and Spotify playing somewhere Homedash doesn't run (a phone,
+ * a speaker's own Spotify, the TV). Then give Spotify a moment to let go.
+ */
+async function freeSpotify(keep: (id: string) => boolean) {
+  const hass = hassStore.get();
+  if (!hass) return;
+  let paused = false;
+  const others = MANAGED_PLAYERS.filter(id => !keep(id) && hass.states[id]?.state === 'playing' && !notSpotify(hass.states[id]));
+  if (others.length) {
+    await hass.callService('media_player', 'media_pause', undefined, { entity_id: others }).catch(() => {});
+    paused = true;
+  }
+  // The family's Spotify account itself: if it's playing on another device, pause it there.
+  const account = Object.keys(hass.states).find(id => id.startsWith('media_player.spotify_'));
+  const acc = account ? hass.states[account] : undefined;
+  if (acc?.state === 'playing' && !/music assistant/i.test(String(acc.attributes.source || ''))) {
+    await hass.callService('media_player', 'media_pause', undefined, { entity_id: account }).catch(() => {});
+    paused = true;
+  }
+  if (paused) await sleep(1500);
+}
+
+/** Pause anything else on Spotify, start the new music, and if Spotify still says it's busy,
+ *  wait a little and try once more. */
+async function startSpotify(keep: (id: string) => boolean, start: () => Promise<any>) {
+  await freeSpotify(keep);
+  try {
+    return await start();
+  } catch (e) {
+    if (!isSpotifyLimit(e)) throw e;
+    await freeSpotify(keep);
+    await sleep(2500);
+    return start();
+  }
+}
+
 /**
  * Play a "Play something" choice on the speakers picked: the first one leads and the rest
  * join it. Anything else playing carries on, unless both are Spotify (one stream at a time).
@@ -97,12 +138,10 @@ export async function playSource(src: Source, speakers: string[]) {
   // Take the speakers out of whatever they were part of first, so the new choice doesn't
   // replace the music in the rest of that group.
   await call('media_player', 'unjoin', undefined, speakers).catch(() => {});
-  if (src.spotify) {
-    const others = MANAGED_PLAYERS.filter(id => !speakers.includes(id) && hass.states[id]?.state === 'playing' && !notSpotify(hass.states[id]));
-    if (others.length) await call('media_player', 'media_pause', undefined, others).catch(() => {});
-  }
   try {
-    await call('music_assistant', 'play_media', { media_id: src.mediaId, media_type: src.mediaType, enqueue: 'replace' }, lead);
+    const go = () => call('music_assistant', 'play_media', { media_id: src.mediaId, media_type: src.mediaType, enqueue: 'replace' }, lead);
+    if (src.spotify) await startSpotify(id => speakers.includes(id), go);
+    else await go();
   } catch (e) {
     if (!src.fallbackUrl) throw e;
     // Some streams Music Assistant won't take as a link; send them the ordinary way.
@@ -122,19 +161,15 @@ export async function playSource(src: Source, speakers: string[]) {
 export async function play(target: string, item: MediaItem, enqueue: 'replace' | 'add' = 'replace') {
   const hass = hassStore.get();
   if (!hass) throw new Error('Not connected to Home Assistant');
-  if (enqueue === 'replace') {
-    const groupMembers: string[] = hass.states[HOME.music.group]?.attributes.group_members || [];
-    const sameStream = (id: string) =>
-      id === target ||
-      (target === HOME.music.group && groupMembers.includes(id)) ||
-      (id === HOME.music.group && groupMembers.includes(target));
-    // Only other Spotify music has to stop; kids' podcasts and radio can keep going.
-    const others = MANAGED_PLAYERS.filter(id => !sameStream(id) && hass.states[id]?.state === 'playing' && !notSpotify(hass.states[id]));
-    if (others.length) {
-      await hass.callService('media_player', 'media_pause', undefined, { entity_id: others }).catch(() => {});
-    }
-  }
-  await hass.callService('music_assistant', 'play_media', { media_id: item.uri, media_type: item.kind, enqueue }, { entity_id: target });
+  const go = () => hass.callService('music_assistant', 'play_media', { media_id: item.uri, media_type: item.kind, enqueue }, { entity_id: target });
+  if (enqueue !== 'replace') { await go(); return; }
+  const groupMembers: string[] = hass.states[HOME.music.group]?.attributes.group_members || [];
+  const sameStream = (id: string) =>
+    id === target ||
+    (target === HOME.music.group && groupMembers.includes(id)) ||
+    (id === HOME.music.group && groupMembers.includes(target));
+  // Only other Spotify music has to stop; kids' podcasts and radio can keep going.
+  await startSpotify(sameStream, go);
 }
 
 /** Turn a Home Assistant error into something readable. */

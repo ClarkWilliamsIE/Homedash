@@ -6,16 +6,16 @@ import { FillSlider, Switch } from './controls';
 import { TONE_STYLES, useSettings } from '../../lib/settings';
 import { HomeIcons } from './icons';
 
-const media = (service: string, entityId: string, data?: Record<string, any>) =>
+export const media = (service: string, entityId: string, data?: Record<string, any>) =>
   callService('media_player', service, data, { entity_id: entityId });
 
 
-type Speaker = { entity: string; name: string; direct?: string };
-const SPEAKERS = HOME.music.speakers as Speaker[];
+export type Speaker = { entity: string; name: string; direct?: string };
+export const SPEAKERS = HOME.music.speakers as Speaker[];
 
 /** Music Assistant's players first, then each speaker's own Sonos entity (only counted when
  *  something outside Music Assistant is playing on it, like RNZ from the Sonos app). */
-const PLAYERS: { entity: string; name: string; directFor?: string }[] = [
+export const PLAYERS: { entity: string; name: string; directFor?: string }[] = [
   { entity: HOME.music.group, name: 'kitchen & family room' },
   ...SPEAKERS.map(s => ({ entity: s.entity, name: s.name.toLowerCase() })),
   ...SPEAKERS.filter(s => s.direct).map(s => ({ entity: s.direct!, name: s.name.toLowerCase(), directFor: s.entity })),
@@ -51,7 +51,7 @@ export const describeMedia = (e?: HassEntity): { title?: string; artist?: string
 
 /** Album art, title and controls for whichever of our speakers is playing (the group first). */
 /** Which player the big "Now playing" shows: the group first, then any speaker that's playing. */
-const useMainPlayer = () => {
+export const useMainPlayer = () => {
   const raw = useEntities(PLAYERS.map(p => p.entity));
   // A Sonos entity only counts when it's playing something of its own and Music Assistant
   // isn't already playing on that speaker.
@@ -162,7 +162,7 @@ export const SpeakerRow: React.FC<{ entityId: string; name: string }> = ({ entit
  *  the stereo, say) and turns them all up or down together. */
 /** Volume as − and + buttons (5% a press): easier than a small slider on the kitchen iPad.
  *  The number updates straight away; the speakers catch up a moment later. */
-export const VolumeStepper: React.FC<{ value: number; onSet: (pct: number) => void; label: string; disabled?: boolean; big?: boolean }> = ({ value, onSet, label, disabled, big }) => {
+export const VolumeStepper: React.FC<{ value: number; onSet: (pct: number) => void; label: string; disabled?: boolean; big?: boolean; dark?: boolean; prefix?: string }> = ({ value, onSet, label, disabled, big, dark, prefix }) => {
   const [pending, setPending] = React.useState<number | null>(null);
   const timer = React.useRef<any>(null);
   const shown = pending ?? value;
@@ -173,17 +173,17 @@ export const VolumeStepper: React.FC<{ value: number; onSet: (pct: number) => vo
     clearTimeout(timer.current);
     timer.current = setTimeout(() => setPending(null), 2500);
   };
-  const btn = `${big ? 'w-12 h-11 text-xl' : 'w-10 h-9 text-lg'} rounded-xl bg-slate-100 text-slate-700 font-semibold flex items-center justify-center active:bg-slate-200 disabled:opacity-40`;
+  const btn = `${big ? 'w-12 h-11 text-xl' : 'w-10 h-9 text-lg'} rounded-xl font-semibold flex items-center justify-center disabled:opacity-40 ${dark ? 'bg-white/10 text-white active:bg-white/20' : 'bg-slate-100 text-slate-700 active:bg-slate-200'}`;
   return (
     <div className="flex items-center gap-1.5" role="group" aria-label={label}>
       <button className={btn} disabled={disabled || shown <= 0} onClick={() => step(-5)} aria-label={`${label} down`}>−</button>
-      <span className={`${big ? 'w-12 text-lg' : 'w-10'} text-center font-semibold tabular-nums text-slate-800`} aria-live="polite">{shown}</span>
+      <span className={`${prefix ? 'min-w-[4.5rem]' : big ? 'w-12' : 'w-10'} ${big ? 'text-lg' : ''} text-center font-semibold tabular-nums ${dark ? 'text-white' : 'text-slate-800'}`} aria-live="polite">{prefix ? `${prefix} ${shown}` : shown}</span>
       <button className={btn} disabled={disabled || shown >= 100} onClick={() => step(5)} aria-label={`${label} up`}>+</button>
     </div>
   );
 };
 
-export const MasterVolume: React.FC<{ compact?: boolean }> = ({ compact }) => {
+export const MasterVolume: React.FC<{ compact?: boolean; dark?: boolean }> = ({ compact, dark }) => {
   const speakers = HOME.music.speakers;
   const states = useEntities(speakers.map(s => s.entity));
   // Only the speakers playing the main music (not, say, Lilly's story in another room).
@@ -207,8 +207,8 @@ export const MasterVolume: React.FC<{ compact?: boolean }> = ({ compact }) => {
     <div className="flex items-center gap-2">
       {compact ? (
         <>
-          <span className="flex-1 font-semibold text-slate-700">Volume</span>
-          <VolumeStepper big value={allMuted ? 0 : Math.round(top * 100)} onSet={setAll} label="Master volume" />
+          {!dark && <span className="flex-1 font-semibold text-slate-700">Volume</span>}
+          <VolumeStepper big dark={dark} prefix={dark ? (targets.length > 1 ? 'All' : 'Vol') : undefined} value={allMuted ? 0 : Math.round(top * 100)} onSet={setAll} label="Master volume" />
         </>
       ) : (
         <FillSlider
@@ -222,7 +222,7 @@ export const MasterVolume: React.FC<{ compact?: boolean }> = ({ compact }) => {
       <button
         aria-label={allMuted ? 'Unmute all' : 'Mute all'}
         onClick={() => targets.forEach(t => media('volume_mute', t.entity, { is_volume_muted: !allMuted }))}
-        className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${allMuted ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500'}`}
+        className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${allMuted ? 'bg-orange-100 text-orange-700' : dark ? 'bg-white/10 text-white/80' : 'bg-slate-100 text-slate-500'}`}
       >
         {allMuted ? <HomeIcons.Mute className="w-5 h-5" /> : <HomeIcons.Volume className="w-5 h-5" />}
       </button>
@@ -302,24 +302,24 @@ type Override = { on: boolean; stream: string; at: number };
 const overrides = new Map<string, Override>();
 const overrideListeners = new Set<() => void>();
 let overrideVersion = 0;
-const setOverride = (speaker: string, o: Override) => {
+export const setOverride = (speaker: string, o: Override) => {
   overrides.set(speaker, o); overrideVersion++; overrideListeners.forEach(l => l());
   setTimeout(() => { if (overrides.get(speaker) === o) { overrides.delete(speaker); overrideVersion++; overrideListeners.forEach(l => l()); } }, o.on ? 12000 : 90000);
 };
-const useOverrideVersion = () => React.useSyncExternalStore(
+export const useOverrideVersion = () => React.useSyncExternalStore(
   l => { overrideListeners.add(l); return () => { overrideListeners.delete(l); }; },
   () => overrideVersion,
 );
 
 /** Is this speaker part of this stream, counting a switch flicked a moment ago. */
-const inStream = (stream: Stream | undefined, speaker: string) => {
+export const inStream = (stream: Stream | undefined, speaker: string) => {
   const o = overrides.get(speaker);
   if (o && stream) return o.stream === stream.entity ? o.on : (o.on ? false : stream.members.includes(speaker));
   return !!stream && stream.members.includes(speaker);
 };
 
 /** Add a speaker to, or take it out of, something that's playing. */
-const setSpeakerIn = (stream: Stream, sp: Speaker, on: boolean, group?: HassEntity) => {
+export const setSpeakerIn = (stream: Stream, sp: Speaker, on: boolean, group?: HassEntity) => {
   setOverride(sp.entity, { on, stream: stream.entity, at: Date.now() });
   if (stream.direct) {
     if (!sp.direct) return;
