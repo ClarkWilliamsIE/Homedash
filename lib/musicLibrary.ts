@@ -178,3 +178,65 @@ export const friendlyError = (e: any) => {
   if (/simultaneous streams/i.test(msg)) return 'Spotify is already playing somewhere else (one stream at a time). Pause it there, then try again.';
   return msg.replace(/^Failed to perform the action [\w./]+\.\s*/, '') || 'Something went wrong';
 };
+
+// ---------------------------------------------------------------------------
+// Album track counts. Spotify files singles as albums; the Jukebox only wants real albums.
+// Music Assistant doesn't say how many songs an album has, so we look inside each album once
+// (through Home Assistant's media browser) and remember the answer on this device.
+const COUNT_KEY = 'homedash_album_tracks';
+let counts: Record<string, number> | null = null;
+const loadCounts = () => {
+  if (!counts) {
+    try { counts = JSON.parse(localStorage.getItem(COUNT_KEY) || '{}') || {}; } catch { counts = {}; }
+  }
+  return counts!;
+};
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+const saveCounts = () => {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { try { localStorage.setItem(COUNT_KEY, JSON.stringify(loadCounts())); } catch { /* full */ } }, 500);
+};
+
+// Albums we couldn't look inside this time (-1): shown anyway, tried again next visit.
+const couldntCount = new Set<string>();
+/** Songs on an album if we've counted them, -1 if we couldn't, undefined if not checked yet. */
+export const knownTrackCount = (uri: string): number | undefined => loadCounts()[uri] ?? (couldntCount.has(uri) ? -1 : undefined);
+
+const counting = new Map<string, Promise<number | undefined>>();
+const queue: Array<() => void> = [];
+let running = 0;
+const MAX_AT_ONCE = 4;
+const pump = () => {
+  while (running < MAX_AT_ONCE && queue.length) { running++; queue.shift()!(); }
+};
+
+/** Count an album's songs (a few at a time, so Home Assistant isn't swamped). */
+export const trackCount = (uri: string): Promise<number | undefined> => {
+  const known = knownTrackCount(uri);
+  if (known !== undefined) return Promise.resolve(known);
+  if (!counting.has(uri)) {
+    counting.set(uri, new Promise(resolve => {
+      queue.push(async () => {
+        try {
+          const hass = hassStore.get();
+          const r: any = await hass?.callWS({
+            type: 'media_player/browse_media',
+            entity_id: (HOME.music.speakers as any[])[0].entity,
+            media_content_id: uri,
+            media_content_type: 'album',
+          });
+          const n = Array.isArray(r?.children) ? r.children.length : undefined;
+          if (n !== undefined && n > 0) { loadCounts()[uri] = n; saveCounts(); } else couldntCount.add(uri);
+          resolve(n);
+        } catch {
+          couldntCount.add(uri);
+          resolve(undefined);
+        } finally {
+          running--; counting.delete(uri); pump();
+        }
+      });
+      pump();
+    }));
+  }
+  return counting.get(uri)!;
+};

@@ -5,11 +5,20 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { HOME } from '../../home.config';
 import { hassStore } from '../../lib/hass';
-import { MediaItem, artistDetail, friendlyError, library, play } from '../../lib/musicLibrary';
+import { MediaItem, artistDetail, friendlyError, knownTrackCount, library, play, trackCount } from '../../lib/musicLibrary';
 import { HomeIcons } from './icons';
 import { useStreams } from './music';
 
 const ALL = '__all__';
+const ORDER_KEY = 'homedash_jukebox_order';
+/** Fewer songs than this and it's a single (or a two-song release), not an album. */
+const MIN_TRACKS = 4;
+type Order = 'shuffle' | 'az';
+
+// A steady random order: the same seed gives the same order, so the shelf doesn't jump about
+// while singles are being weeded out. A new seed reshuffles.
+const hash = (s: string) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
+
 const firstArtist = (a: MediaItem) => (a.artistNames?.[0] || a.subtitle || '').replace(/^the\s+/i, '');
 const letterOf = (a: MediaItem) => {
   const c = firstArtist(a).charAt(0).toUpperCase();
@@ -34,6 +43,9 @@ const Jukebox: React.FC = () => {
   const [msg, setMsg] = useState<{ text: string; error?: boolean } | null>(null);
   const shelf = useRef<HTMLDivElement>(null);
   const main = useStreams()[0];
+  const [order, setOrder] = useState<Order>(() => { try { return localStorage.getItem(ORDER_KEY) === 'az' ? 'az' : 'shuffle'; } catch { return 'shuffle'; } });
+  const [seed, setSeed] = useState(() => Math.floor(Math.random() * 1e9));
+  const [, setCounted] = useState(0);
 
   useEffect(() => {
     library('album', 'artist_name', 500).then(setAlbums).catch(e => { setAlbums([]); setMsg({ text: friendlyError(e), error: true }); });
@@ -50,13 +62,39 @@ const Jukebox: React.FC = () => {
     shelf.current?.scrollTo({ left: 0 });
   }, [artist]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const shown = artist === ALL ? albums : artistAlbums;
+  const source = artist === ALL ? albums : artistAlbums;
+
+  // Count the songs on any album we haven't checked yet; singles drop off as answers come in.
+  useEffect(() => {
+    if (!source) return;
+    let live = true;
+    source.filter(a => knownTrackCount(a.uri) === undefined).forEach(a => {
+      trackCount(a.uri).then(() => { if (live) setCounted(n => n + 1); });
+    });
+    return () => { live = false; };
+  }, [source]);
+
+  const unchecked = source ? source.filter(a => knownTrackCount(a.uri) === undefined).length : 0;
+  const isAlbum = (a: MediaItem) => { const n = knownTrackCount(a.uri); return n === undefined || n < 0 || n >= MIN_TRACKS; };
+  const shown = source === null ? null : (
+    order === 'shuffle'
+      ? [...source].sort((a, b) => hash(a.uri + seed) - hash(b.uri + seed))
+      : source
+  ).filter(isAlbum);
+
   const letters = useMemo(() => {
-    if (artist !== ALL || !albums) return [];
+    if (artist !== ALL || order !== 'az' || !shown) return [];
     const first = new Map<string, number>();
-    albums.forEach((a, i) => { const l = letterOf(a); if (!first.has(l)) first.set(l, i); });
+    shown.forEach((a, i) => { const l = letterOf(a); if (!first.has(l)) first.set(l, i); });
     return [...first.entries()];
-  }, [albums, artist]);
+  }, [shown, artist, order]);
+
+  const chooseOrder = (o: Order) => {
+    if (o === 'shuffle' && order === 'shuffle') setSeed(Math.floor(Math.random() * 1e9));
+    setOrder(o);
+    try { localStorage.setItem(ORDER_KEY, o); } catch { /* ignore */ }
+    shelf.current?.scrollTo({ left: 0, behavior: 'smooth' });
+  };
 
   const jump = (index: number) => {
     const el = shelf.current?.children[index] as HTMLElement | undefined;
@@ -86,12 +124,22 @@ const Jukebox: React.FC = () => {
         <h2 className="font-display text-[26px] leading-tight">Jukebox</h2>
         <select value={artist} onChange={e => { setArtist(e.target.value); setPicked(null); }} aria-label="Whose albums"
           className="h-10 max-w-[16rem] bg-white/10 rounded-full px-4 font-semibold text-white outline-none [&>*]:text-slate-900">
-          <option value={ALL}>All your albums{albums ? ` (${albums.length})` : ''}</option>
+          <option value={ALL}>All your albums{albums ? ` (${albums.filter(isAlbum).length})` : ''}</option>
           <optgroup label="Artists you follow">
             {artists.map(a => <option key={a.uri} value={a.uri}>{a.name}</option>)}
           </optgroup>
         </select>
-        <span className="ml-auto text-sm text-white/60 hidden md:block">Flick sideways, tap a cover</span>
+        <div className="ml-auto flex rounded-full bg-white/10 p-1" role="group" aria-label="Album order">
+          <button onClick={() => chooseOrder('shuffle')} aria-pressed={order === 'shuffle'}
+            title={order === 'shuffle' ? 'Shuffle again' : 'Shuffled'}
+            className={`h-9 px-3.5 rounded-full text-sm font-semibold flex items-center gap-1.5 ${order === 'shuffle' ? 'bg-white text-slate-950' : 'text-white/75'}`}>
+            <HomeIcons.Shuffle className="w-4 h-4" /> {order === 'shuffle' ? 'Shuffle again' : 'Shuffled'}
+          </button>
+          <button onClick={() => chooseOrder('az')} aria-pressed={order === 'az'}
+            className={`h-9 px-3.5 rounded-full text-sm font-semibold ${order === 'az' ? 'bg-white text-slate-950' : 'text-white/75'}`}>
+            A–Z
+          </button>
+        </div>
       </div>
       {shown === null ? (
         <div className="flex gap-4 overflow-hidden">{[0, 1, 2, 3, 4].map(i => <div key={i} className="w-36 h-36 shrink-0 rounded-md bg-white/10 animate-pulse" />)}</div>
@@ -104,12 +152,38 @@ const Jukebox: React.FC = () => {
             {shown.map(a => {
               const on = picked?.uri === a.uri;
               return (
-                <button key={a.uri} role="listitem" onClick={() => { setPicked(on ? null : a); setMsg(null); }} aria-pressed={on}
-                  className="snap-start shrink-0 w-36 text-left group">
-                  <Cover item={a} className={`w-36 h-36 rounded-md shadow-[0_10px_24px_rgba(0,0,0,0.45)] transition-transform ${on ? 'ring-[3px] ring-amber-200 ring-offset-[3px] ring-offset-slate-950 -translate-y-1' : 'group-active:scale-[0.97]'}`} />
+                <div key={a.uri} role="listitem" className="snap-start shrink-0 w-36">
+                  <div className={`relative w-36 h-36 transition-transform ${on ? '-translate-y-1' : ''}`}>
+                    <button onClick={() => { setPicked(on ? null : a); setMsg(null); }} aria-pressed={on}
+                      aria-label={on ? `Close ${a.name}` : `${a.name}, ${a.subtitle || ''}`}
+                      className="block w-36 h-36 rounded-md active:scale-[0.97] transition-transform">
+                      <Cover item={a} className={`w-36 h-36 rounded-md shadow-[0_10px_24px_rgba(0,0,0,0.45)] ${on ? 'ring-[3px] ring-amber-200 ring-offset-[3px] ring-offset-slate-950' : ''}`} />
+                    </button>
+                    {/* Tap a cover and its buttons appear right on it, like pressing a jukebox key. */}
+                    {on && (
+                      <div className="absolute inset-0 rounded-md bg-black/55 flex flex-col items-center justify-center gap-2.5 pointer-events-none">
+                        <button onClick={() => go('play')} disabled={!!busy} aria-label={`Play ${a.name}`}
+                          className="pointer-events-auto w-16 h-16 rounded-full bg-white text-slate-950 flex items-center justify-center shadow-lg active:scale-95 transition-transform disabled:opacity-70">
+                          {busy === 'play'
+                            ? <span className="w-6 h-6 border-[3px] border-slate-950 border-t-transparent rounded-full animate-spin" />
+                            : <HomeIcons.Play className="w-7 h-7 ml-1" />}
+                        </button>
+                        <div className="flex gap-2 pointer-events-auto">
+                          <button onClick={() => go('shuffle')} disabled={!!busy} aria-label={`Shuffle ${a.name}`}
+                            className="w-11 h-11 rounded-full bg-white/20 text-white flex items-center justify-center active:bg-white/30 disabled:opacity-60">
+                            {busy === 'shuffle' ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <HomeIcons.Shuffle className="w-5 h-5" />}
+                          </button>
+                          <button onClick={() => go('queue')} disabled={!!busy} aria-label={`Add ${a.name} to the queue`}
+                            className="w-11 h-11 rounded-full bg-white/20 text-white flex items-center justify-center active:bg-white/30 disabled:opacity-60">
+                            {busy === 'queue' ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <HomeIcons.Plus className="w-5 h-5" />}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <p className="mt-2 text-[15px] font-semibold text-white truncate">{a.name}</p>
                   <p className="text-[13px] text-white/60 truncate">{a.subtitle}</p>
-                </button>
+                </div>
               );
             })}
           </div>
@@ -122,28 +196,9 @@ const Jukebox: React.FC = () => {
             </div>
           )}
 
-          {picked && (
-            <div className="mt-4 p-4 rounded-2xl bg-white/10 border border-white/15 flex items-center gap-5">
-              <Cover item={picked} className="w-24 h-24 rounded-xl shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="font-display text-2xl text-white truncate">{picked.name}</p>
-                <p className="text-white/70 truncate">{picked.subtitle}</p>
-                <div className="flex flex-wrap gap-2 mt-3">
-                  <button onClick={() => go('play')} disabled={!!busy} className="h-11 px-5 rounded-full bg-white text-slate-950 font-semibold flex items-center gap-2 disabled:opacity-60">
-                    <HomeIcons.Play className="w-4 h-4" /> {busy === 'play' ? 'Starting…' : 'Play'}
-                  </button>
-                  <button onClick={() => go('shuffle')} disabled={!!busy} className="h-11 px-4 rounded-full border border-white/30 text-white font-semibold flex items-center gap-2 disabled:opacity-60">
-                    <HomeIcons.Shuffle className="w-4 h-4" /> {busy === 'shuffle' ? 'Starting…' : 'Shuffle'}
-                  </button>
-                  <button onClick={() => go('queue')} disabled={!!busy} className="h-11 px-4 rounded-full text-white/80 font-semibold hover:bg-white/10 disabled:opacity-60">
-                    {busy === 'queue' ? 'Adding…' : 'Add to queue'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
         </>
       )}
+      {unchecked > 0 && shown && shown.length > 0 && <p className="mt-2 text-sm text-white/50">Weeding out singles… {unchecked} left to check (only the first time)</p>}
       {msg && <p className={`mt-3 text-sm font-semibold ${msg.error ? 'text-orange-300' : 'text-amber-200'}`}>{msg.text}</p>}
     </section>
   );
