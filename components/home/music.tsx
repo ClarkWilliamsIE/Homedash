@@ -97,6 +97,24 @@ export const useArt = (e?: HassEntity | null) => {
 
 /** Album art, title and controls for whichever of our speakers is playing (the group first). */
 /** Which player the big "Now playing" shows: the group first, then any speaker that's playing. */
+// Music Assistant drops a player to "idle" the moment it's paused (Sonos can't hold its
+// stream), but it keeps the queue and the song. Show that as paused, so Play picks up where it
+// left off, rather than the page going blank. Only for a few hours, and once per song.
+const RESUME_FOR_MS = 3 * 3600e3;
+const resumable = () => {
+  const seen = new Set<string>();
+  return (e: HassEntity | undefined, i: number): HassEntity | undefined => {
+    if (!e || PLAYERS[i].directFor) return e;
+    const a = e.attributes;
+    const key = `${a.media_title}|${a.media_artist}`;
+    if (e.state === 'playing' || e.state === 'paused') { seen.add(key); return e; }
+    if (e.state !== 'idle' || !a.media_title || !a.active_queue) return e;
+    if (Date.now() - Date.parse(e.last_changed) > RESUME_FOR_MS || seen.has(key)) return e;
+    seen.add(key);
+    return { ...e, state: 'paused' };
+  };
+};
+
 export const useMainPlayer = () => {
   const raw = useEntities(PLAYERS.map(p => p.entity));
   // A Sonos entity only counts when it's playing something of its own and Music Assistant
@@ -106,7 +124,7 @@ export const useMainPlayer = () => {
     if (!forMa) return e;
     const ma = raw[PLAYERS.findIndex(p => p.entity === forMa)];
     return playingOutsideMA(e) && ma?.state !== 'playing' ? e : undefined;
-  });
+  }).map(resumable());
   const groupMembers: string[] = states[0]?.attributes.group_members || [];
   const pick = (want: string) => PLAYERS.findIndex((p, i) => states[i]?.state === want && !(i > 0 && groupMembers.includes(p.entity) && states[0]?.state === want));
   let idx = pick('playing');
