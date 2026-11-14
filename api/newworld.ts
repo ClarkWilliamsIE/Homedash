@@ -189,7 +189,7 @@ export default async function handler(req: any, res: any) {
     if (body.action === 'match') {
       const items: string[] = [...new Set((Array.isArray(body.items) ? body.items : []).map((i: unknown) => cleanText(i, 80)).filter(Boolean))].slice(0, 20) as string[];
       const found = await pooled(items, 3, async item => {
-        try { return await search(item, storeId, 4); }
+        try { return await search(item, storeId, 6); }
         catch (e) { if (e instanceof Upstream && (e.status === 403 || e.status === 429)) throw e; return []; }
       });
       return res.status(200).json({ results: Object.fromEntries(items.map((item, i) => [item, found[i]])) });

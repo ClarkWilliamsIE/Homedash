@@ -7,7 +7,7 @@ import { Recipe, WeeklyPlan } from '../types';
 import type { ManualItem } from '../lib/merge';
 import { AddItemBar, Btn, Icon, PageTitle } from './ui';
 import { NwChoice, NwRowMatch, nwKey, useNewWorld } from '../lib/newworld';
-import { NwRowDetail, NwSendSheet, NwSetupSheet, NwSummary, NwSwapSheet, useTrolley } from './NewWorld';
+import { NwRowDetail, NwSetupSheet, NwSummary, NwSwapSheet, NwTrolleySheet, TrolleyQty, useTrolley } from './NewWorld';
 
 interface ShoppingListProps {
   weeklyPlan: WeeklyPlan;
@@ -229,15 +229,22 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
   // New World: a product and price for everything still to get, and the trolley hand-off.
   const toGetNames = useMemo(() => toGet.map(r => r.name), [toGet.map(r => r.name).join('|')]);
   const nw = useNewWorld(toGetNames, nwChoices);
-  const trolley = useTrolley(toGetNames, nw);
+  // Amounts changed for this shop only (kept while this tab stays open).
+  const [nwQty, setNwQty] = useState<TrolleyQty>(() => {
+    try { return JSON.parse(sessionStorage.getItem('homedash_nw_qty') || '{}'); } catch { return {}; }
+  });
+  useEffect(() => { try { sessionStorage.setItem('homedash_nw_qty', JSON.stringify(nwQty)); } catch { /* storage blocked */ } }, [nwQty]);
+  const trolley = useTrolley(toGetNames, nw, nwQty);
   const [swapItem, setSwapItem] = useState<string | null>(null);
   const [showSend, setShowSend] = useState(false);
   const [showNwSetup, setShowNwSetup] = useState(false);
-  const chooseProduct = (choice: NwChoice | null) => {
-    if (!swapItem) return;
-    const key = nwKey(swapItem);
+  const chooseFor = (item: string, choice: NwChoice | null) => {
+    const key = nwKey(item);
     onUpdateNwChoices([...nwChoices.filter(c => c.id !== key), ...(choice ? [choice] : [])]);
+    // A different product starts again at its usual amount.
+    setNwQty(q => { if (!(key in q)) return q; const next = { ...q }; delete next[key]; return next; });
   };
+  const chooseProduct = (choice: NwChoice | null) => { if (swapItem) chooseFor(swapItem, choice); };
 
   const finishShop = () => {
     const snapshot = { items: manualItems, cleared: clearedIngredients, checked: checkedIngredients, count: inTrolley.length };
@@ -401,13 +408,21 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
         </p>
       )}
 
+      <NwTrolleySheet
+        open={showSend}
+        trolley={trolley}
+        onQty={(key, q) => setNwQty(prev => ({ ...prev, [key]: q }))}
+        onChoose={chooseFor}
+        onSearch={setSwapItem}
+        onClose={() => setShowSend(false)}
+        onSetup={() => { setShowSend(false); setShowNwSetup(true); }}
+      />
       <NwSwapSheet
         itemName={swapItem}
         match={swapItem ? nw.matches.get(nwKey(swapItem)) : undefined}
         onClose={() => setSwapItem(null)}
         onChoose={chooseProduct}
       />
-      <NwSendSheet open={showSend} trolley={trolley} onClose={() => setShowSend(false)} onSetup={() => { setShowSend(false); setShowNwSetup(true); }} />
       <NwSetupSheet open={showNwSetup} onClose={() => setShowNwSetup(false)} />
 
       {undo && (

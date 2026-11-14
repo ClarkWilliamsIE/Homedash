@@ -60,19 +60,52 @@ export const DEFAULT_GRAMS = 500;
 
 /** What one of this item adds to the estimated total, in cents. null when it can't be guessed
  *  (loose produce bought "each" is priced per kg). */
-export const estimateCents = (p: NwProduct): number | null => {
+export const estimateCents = (p: NwProduct, q = defaultQty(p)): number | null => {
   if (p.price == null) return null;
   const price = p.special?.price ?? p.price;
-  if (p.saleType === 'WEIGHT') return Math.round(price * DEFAULT_GRAMS / 1000);
+  if (p.saleType === 'WEIGHT') return Math.round(price * q / 1000);
   if (p.saleType === 'BOTH' || p.size === 'kg') return null;
-  return price;
+  return price * q;
 };
 
-/** What to ask the trolley for: one of it, or 500 g when it's only sold by weight. */
-export const trolleyLine = (p: { id: string; saleType: string }, label: string) =>
-  p.saleType === 'WEIGHT'
-    ? { id: p.id, q: DEFAULT_GRAMS, t: 'WEIGHT', n: label }
-    : { id: p.id, q: 1, t: 'UNITS', n: label };
+// --- Which product is picked when the family hasn't chosen one ---
+/** 'popular' takes New World's top result; 'value' takes the cheapest per 100 g / litre among the top few. */
+export type PickMode = 'popular' | 'value';
+const MODE_KEY = 'homedash_nw_pick';
+let pickMode: PickMode = (() => { try { return localStorage.getItem(MODE_KEY) === 'value' ? 'value' : 'popular'; } catch { return 'popular'; } })();
+
+const unitOf = (p: NwProduct) => {
+  const m = /^\$([\d.]+)\/(.+)$/.exec(p.unitPrice || '');
+  return m ? { cents: Math.round(parseFloat(m[1]) * 100), per: m[2] } : null;
+};
+
+/** The product to use for an item nobody has chosen for yet. */
+export const pickDefault = (suggestions: NwProduct[], mode: PickMode): NwProduct | undefined => {
+  const top = suggestions.find(p => p.online) || suggestions[0];
+  if (!top || mode === 'popular') return top;
+  // Only compare like with like (same "per 100g"), and only among the closest matches, so
+  // "milk" can't turn into a cheap chocolate bar further down the results.
+  const base = unitOf(top);
+  if (!base) return top;
+  let best = top, bestCents = base.cents;
+  for (const p of suggestions.slice(0, 5)) {
+    const u = unitOf(p);
+    if (!p.online || !u || u.per !== base.per || p.saleType !== top.saleType) continue;
+    if (u.cents < bestCents) { best = p; bestCents = u.cents; }
+  }
+  return best;
+};
+
+/** How much one tap of + or - changes the amount: one each, or 250 g for things sold by weight. */
+export const qtyStep = (p: { saleType: string }) => (p.saleType === 'WEIGHT' ? 250 : 1);
+/** The amount an item starts at: one of it, or 500 g when it's only sold by weight. */
+export const defaultQty = (p: { saleType: string }) => (p.saleType === 'WEIGHT' ? DEFAULT_GRAMS : 1);
+export const qtyText = (p: { saleType: string }, q: number) =>
+  p.saleType === 'WEIGHT' ? (q >= 1000 ? `${+(q / 1000).toFixed(2)} kg` : `${q} g`) : String(q);
+
+/** What to ask the trolley for. `q` is a count, or grams for things only sold by weight. */
+export const trolleyLine = (p: { id: string; saleType: string }, label: string, q = defaultQty(p)) =>
+  ({ id: p.id, q, t: p.saleType === 'WEIGHT' ? 'WEIGHT' : 'UNITS', n: label });
 
 // Recipe ingredients come with cooking words that confuse a shop search ("garlic cloves, crushed").
 const NOISE = /\b(fresh|freshly|finely|roughly|thinly|chopped|diced|sliced|minced|grated|crushed|peeled|trimmed|halved|quartered|cubed|shredded|melted|softened|cooked|drained|rinsed|large|small|medium|ripe|optional|to taste|to serve|for serving|of)\b/g;
@@ -105,7 +138,7 @@ export const searchProducts = (query: string, limit = 12) =>
   api<{ products: NwProduct[] }>({ action: 'search', query, limit }).then(r => r.products || []);
 
 // --- What this device already knows (prices go stale, so entries expire) ---
-const CACHE_KEY = 'homedash_nw_cache_v1';
+const CACHE_KEY = 'homedash_nw_cache_v2';
 const MATCH_TTL = 12 * 3600_000;
 const PRICE_TTL = 6 * 3600_000;
 
@@ -136,6 +169,14 @@ const persist = () => {
   try { localStorage.setItem(CACHE_KEY, JSON.stringify(cache)); } catch { /* storage full or blocked */ }
 };
 const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
+
+export const getPickMode = () => pickMode;
+export const setPickMode = (mode: PickMode) => {
+  pickMode = mode;
+  try { localStorage.setItem(MODE_KEY, mode); } catch { /* storage blocked */ }
+  emit();
+};
+export const usePickMode = () => useSyncExternalStore(subscribe, () => pickMode);
 
 /** Remember a product the family just picked, so its price shows straight away. */
 export const rememberProduct = (p: NwProduct) => {
@@ -262,7 +303,7 @@ export function useNewWorld(itemNames: string[], choices: NwChoice[], enabled = 
         });
       } else {
         out.set(key, {
-          product: suggestions.find(p => p.online) || suggestions[0],
+          product: pickDefault(suggestions, pickMode),
           chosen: false,
           skipped: false,
           suggestions,

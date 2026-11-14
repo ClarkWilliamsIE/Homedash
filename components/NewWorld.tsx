@@ -8,8 +8,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Btn, Icon, Pill, Sheet } from './ui';
 import {
   NW_STORE, NwChoice, NwProduct, NwRowMatch, NwState, TrolleyLine,
-  estimateCents, money, nwKey, priceText, productLabel, rememberProduct, shelfText,
-  searchProducts, searchTerm, trolleyLine, trolleyLink, trolleyPayload,
+  defaultQty, estimateCents, money, nwKey, priceText, productLabel, qtyStep, qtyText, rememberProduct, shelfText,
+  searchProducts, searchTerm, setPickMode, trolleyLine, trolleyLink, trolleyPayload, usePickMode,
 } from '../lib/newworld';
 import { NW_BOOKMARKLET_CODE, NW_BOOKMARKLET_URL } from '../lib/nwBookmarklet';
 
@@ -70,25 +70,43 @@ export const NwRowDetail: React.FC<{ itemName: string; match?: NwRowMatch; onOpe
   );
 };
 
+/** Amounts changed for this shop: item → count (or grams). 0 means "leave it out this time". */
+export type TrolleyQty = Record<string, number>;
+
+export interface TrolleyRow {
+  item: string;
+  key: string;
+  match?: NwRowMatch;
+  product?: NwProduct;
+  /** Count, or grams for things only sold by weight. 0 = left out of this shop. */
+  qty: number;
+}
+
 /** What would go to the trolley for these items, and roughly what it costs. */
-export function useTrolley(itemNames: string[], nw: NwState) {
+export function useTrolley(itemNames: string[], nw: NwState, qty: TrolleyQty = {}) {
   return useMemo(() => {
-    const lines: (TrolleyLine & { item: string; product: NwProduct; chosen: boolean })[] = [];
-    const seen = new Set<string>();
+    const rows: TrolleyRow[] = [];
+    const byProduct = new Map<string, TrolleyLine & { product: NwProduct }>();
     let total = 0, unpriced = 0, unmatched = 0;
     for (const item of itemNames) {
-      const m = nw.matches.get(nwKey(item));
+      const key = nwKey(item);
+      const m = nw.matches.get(key);
+      const p = m?.skipped ? undefined : m?.product;
+      const usable = !!p && p.online;
+      const q = usable ? (qty[key] ?? defaultQty(p!)) : 0;
+      rows.push({ item, key, match: m, product: p, qty: q });
       if (m?.skipped) continue;
-      const p = m?.product;
-      if (!p || !p.online) { unmatched++; continue; }
-      if (seen.has(p.id)) continue;
-      seen.add(p.id);
-      lines.push({ ...trolleyLine(p, productLabel(p) || item), item, product: p, chosen: m!.chosen });
-      const cents = estimateCents(p);
+      if (!usable) { if (!m?.loading) unmatched++; continue; }
+      if (q <= 0) continue;
+      // Two list items that are the same product share one trolley line.
+      const existing = byProduct.get(p!.id);
+      if (existing) existing.q += q;
+      else byProduct.set(p!.id, { ...trolleyLine(p!, productLabel(p!) || item, q), product: p! });
+      const cents = estimateCents(p!, q);
       if (cents == null) unpriced++; else total += cents;
     }
-    return { lines, total, unpriced, unmatched };
-  }, [itemNames.join('|'), nw.matches]);
+    return { rows, lines: [...byProduct.values()], total, unpriced, unmatched };
+  }, [itemNames.join('|'), nw.matches, qty]);
 }
 
 /** The card at the top of the list: estimated total and the Send button. */
@@ -123,7 +141,7 @@ export const NwSummary: React.FC<{
         </div>
         <div className="flex items-center gap-2">
           {nw.error && <Btn variant="secondary" size="sm" onClick={nw.retry}>Try again</Btn>}
-          <Btn onClick={onSend} disabled={!lines.length} icon={<Icon.Basket className="w-4 h-4" />}>Send to New World</Btn>
+          <Btn onClick={onSend} disabled={!lines.length && !unmatched} icon={<Icon.Basket className="w-4 h-4" />}>Fill my trolley</Btn>
         </div>
       </div>
       <button onClick={onSetup} className="mt-2 text-sm font-semibold text-slate-500 hover:text-indigo-700 underline underline-offset-4">
@@ -244,71 +262,163 @@ export const NwSwapSheet: React.FC<{
   );
 };
 
-/** Review the list and hand it to New World. */
-export const NwSendSheet: React.FC<{
+const Stepper: React.FC<{ product: NwProduct; qty: number; onChange: (q: number) => void }> = ({ product, qty, onChange }) => {
+  const step = qtyStep(product);
+  const btn = 'w-10 h-10 flex items-center justify-center text-xl font-semibold text-indigo-700 disabled:text-slate-300';
+  return (
+    <div className="shrink-0 flex items-center rounded-2xl border border-slate-200 bg-white">
+      <button className={btn} onClick={() => onChange(Math.max(0, qty - step))} disabled={qty <= 0} aria-label="Less">−</button>
+      <span className="min-w-[2.75rem] text-center text-[15px] font-semibold text-slate-900">{qtyText(product, qty)}</span>
+      <button className={btn} onClick={() => onChange(qty + step)} aria-label="More">+</button>
+    </div>
+  );
+};
+
+const AltChip: React.FC<{ product: NwProduct; onPick: () => void }> = ({ product, onPick }) => (
+  <button
+    onClick={onPick}
+    className="shrink-0 max-w-[15rem] h-12 px-3 rounded-2xl border border-slate-200 bg-white text-left hover:bg-slate-50 active:bg-indigo-50"
+  >
+    <span className="block text-[13px] leading-tight text-slate-800 truncate">{productLabel(product)}</span>
+    <span className="block text-[13px] leading-tight font-semibold text-slate-600">
+      {priceText(product)}{product.special ? <span className="font-medium text-amber-700"> {product.special.club ? 'Club+' : 'special'}</span> : null}
+    </span>
+  </button>
+);
+
+/** The whole trolley, filled in for you: scroll through, swap anything, then send it. */
+export const NwTrolleySheet: React.FC<{
   open: boolean;
   trolley: ReturnType<typeof useTrolley>;
+  onQty: (key: string, qty: number) => void;
+  onChoose: (item: string, choice: NwChoice | null) => void;
+  onSearch: (item: string) => void;
   onClose: () => void;
   onSetup: () => void;
-}> = ({ open, trolley, onClose, onSetup }) => {
+}> = ({ open, trolley, onQty, onChoose, onSearch, onClose, onSetup }) => {
   const [copied, setCopied] = useState(false);
+  const mode = usePickMode();
   useEffect(() => { if (open) setCopied(false); }, [open]);
   if (!open) return null;
-  const { lines, total, unpriced } = trolley;
+  const { rows, lines, total, unpriced } = trolley;
   const plain: TrolleyLine[] = lines.map(({ id, q, t, n }) => ({ id, q, t, n }));
-  const guesses = lines.filter(l => !l.chosen).length;
+  const active = rows.filter(r => !r.match?.skipped);
+  const skipped = rows.filter(r => r.match?.skipped);
+  const pick = (item: string, p: NwProduct) => {
+    rememberProduct(p);
+    onChoose(item, { id: nwKey(item), productId: p.id, label: productLabel(p), saleType: p.saleType });
+  };
+  const modeBtn = (value: 'popular' | 'value', label: string) => (
+    <button
+      onClick={() => setPickMode(value)}
+      aria-pressed={mode === value}
+      className={`h-9 px-3 rounded-xl text-sm font-semibold ${mode === value ? 'bg-indigo-700 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+    >
+      {label}
+    </button>
+  );
   return (
     <Sheet
       open
+      wide
       onClose={onClose}
-      title="Send to New World"
+      title="Your New World trolley"
       footer={
-        <div className="flex flex-wrap items-center gap-2">
-          <a
-            href={trolleyLink(plain)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center justify-center h-11 px-4 rounded-2xl text-[15px] font-semibold bg-indigo-700 text-white hover:bg-indigo-800 shadow-sm"
-          >
-            Open New World
-          </a>
-          <Btn variant="secondary" onClick={async () => setCopied(await copyText(`homedash=${trolleyPayload(plain)}`))}>
-            {copied ? 'Copied' : 'Copy list instead'}
-          </Btn>
+        <div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-slate-800">
+              <span className="text-lg font-semibold">About {money(total)}</span>
+              <span className="text-slate-500"> · {lines.length} item{lines.length === 1 ? '' : 's'}{unpriced ? ', plus loose produce' : ''}</span>
+            </p>
+            <div className="flex items-center gap-2">
+              <Btn variant="ghost" size="sm" onClick={async () => setCopied(await copyText(`homedash=${trolleyPayload(plain)}`))}>
+                {copied ? 'Copied' : 'Copy list'}
+              </Btn>
+              {lines.length > 0 ? (
+                <a
+                  href={trolleyLink(plain)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center h-11 px-5 rounded-2xl text-[15px] font-semibold bg-indigo-700 text-white hover:bg-indigo-800 shadow-sm"
+                >
+                  Send to New World
+                </a>
+              ) : (
+                <Btn disabled>Send to New World</Btn>
+              )}
+            </div>
+          </div>
+          <p className="text-sm text-slate-500 mt-1.5">
+            New World opens: tap your <b>{BOOKMARK_NAME}</b> bookmark there and it all goes in your trolley.{' '}
+            <button onClick={onSetup} className="font-semibold text-indigo-700 underline underline-offset-4">No bookmark yet?</button>
+          </p>
         </div>
       }
     >
-      <ol className="text-[15px] text-slate-700 space-y-1 list-decimal pl-5">
-        <li>Tap <b>Open New World</b>.</li>
-        <li>Tap your <b>{BOOKMARK_NAME}</b> bookmark. It adds these to your trolley. If it asks you to log in, log in and tap it again.</li>
-        <li>Check the trolley, pick a time and pay on New World as usual.</li>
-      </ol>
-      <p className="text-sm text-slate-500 mt-2">
-        Things already in your trolley are left alone.{' '}
-        <button onClick={onSetup} className="font-semibold text-indigo-700 underline underline-offset-4">No bookmark yet?</button>
-      </p>
-      <div className="mt-4 flex items-baseline justify-between">
-        <h3 className="font-semibold text-slate-900">{lines.length} item{lines.length === 1 ? '' : 's'}</h3>
-        <p className="text-slate-700">About <b>{money(total)}</b>{unpriced ? ' plus items by weight' : ''}</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[15px] text-slate-600">Filled in for you. Tap another option to swap, or change the amount.</p>
+        <div className="flex items-center gap-1 rounded-2xl bg-slate-100 p-1" role="group" aria-label="How to pick products">
+          {modeBtn('popular', 'Most popular')}
+          {modeBtn('value', 'Best value')}
+        </div>
       </div>
-      {guesses > 0 && (
-        <p className="text-sm text-slate-500">
-          {guesses} in italics {guesses === 1 ? 'is' : 'are'} New World's top result, not something you've picked. Tap an item on the list to change it.
-        </p>
-      )}
-      <ul className="mt-2 divide-y divide-slate-100">
-        {lines.map(l => (
-          <li key={l.id} className="py-2 flex items-center gap-3">
-            <span className="flex-1 min-w-0">
-              <span className={`block text-[15px] truncate ${l.chosen ? 'text-slate-900' : 'text-slate-600 italic'}`}>{l.n}</span>
-              <span className="block text-xs text-slate-500 truncate">
-                {l.item}{l.t === 'WEIGHT' ? ` · ${l.q} g` : ''}
-              </span>
-            </span>
-            <span className="shrink-0 text-[15px] text-slate-700">{priceText(l.product)}</span>
-          </li>
-        ))}
+
+      <ul className="mt-3 divide-y divide-slate-100">
+        {active.map(r => {
+          const p = r.product;
+          if (!p) {
+            return (
+              <li key={r.key} className="py-3 flex items-center gap-3">
+                <span className="flex-1 min-w-0">
+                  <span className="block text-xs font-semibold uppercase tracking-wide text-slate-400">{r.item}</span>
+                  <span className="block text-[15px] text-slate-500">{r.match?.loading ? 'Looking…' : 'Nothing found at New World'}</span>
+                </span>
+                <Btn variant="secondary" size="sm" onClick={() => onSearch(r.item)}>Find it</Btn>
+              </li>
+            );
+          }
+          const out = r.qty <= 0;
+          const others = (r.match?.suggestions || []).filter(x => x.id !== p.id && x.online).slice(0, 5);
+          return (
+            <li key={r.key} className="py-3">
+              <div className="flex items-center gap-3">
+                <span className={`flex-1 min-w-0 ${out ? 'opacity-45' : ''}`}>
+                  <span className="block text-xs font-semibold uppercase tracking-wide text-slate-400 truncate">{r.item}</span>
+                  <span className={`block text-[16px] font-medium text-slate-900 ${out ? 'line-through' : ''}`}>{productLabel(p)}</span>
+                  <span className="flex items-center gap-2 text-[15px] text-slate-700">
+                    {p.special?.price ? <span className="text-slate-400 line-through">{shelfText(p)}</span> : <span>{shelfText(p)}</span>}
+                    {p.special && <SpecialPill product={p} />}
+                    {!p.special && p.unitPrice && <span className="text-sm text-slate-400">{p.unitPrice}</span>}
+                  </span>
+                </span>
+                <Stepper product={p} qty={r.qty} onChange={q => onQty(r.key, q)} />
+              </div>
+              {!out && (
+                <div className="flex gap-2 overflow-x-auto no-scrollbar mt-2 -mx-1 px-1">
+                  {others.map(x => <AltChip key={x.id} product={x} onPick={() => pick(r.item, x)} />)}
+                  <button onClick={() => onSearch(r.item)} className="shrink-0 h-12 px-4 rounded-2xl border border-dashed border-slate-300 text-sm font-semibold text-indigo-700">
+                    Search…
+                  </button>
+                </div>
+              )}
+            </li>
+          );
+        })}
       </ul>
+
+      {skipped.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-slate-100">
+          <p className="text-sm font-semibold text-slate-500">Not from New World</p>
+          <ul>
+            {skipped.map(r => (
+              <li key={r.key} className="flex items-center gap-2 py-1">
+                <span className="flex-1 text-[15px] text-slate-500 truncate">{r.item}</span>
+                <button onClick={() => onChoose(r.item, null)} className="h-9 px-3 rounded-xl text-sm font-semibold text-indigo-700 hover:bg-slate-50">Put back</button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </Sheet>
   );
 };
