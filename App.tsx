@@ -20,6 +20,7 @@ import { HomeIcons } from './components/home/icons';
 import { Icon, Sheet, useIsPhone } from './components/ui';
 import { useIsHome } from './lib/hass';
 import { apiUrl } from './lib/runtime';
+import type { NwChoice } from './lib/newworld';
 import { pack, mergeState, SyncState, ManualItem as SyncManualItem } from './lib/merge';
 import { HomeSettings, settingsStore, withDefaults } from './lib/settings';
 import { recordItem, setItemCatalog } from './lib/items';
@@ -160,6 +161,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   const [tvProgress, setTvProgress] = useState<TvProgress[]>(cached?.state.tvProgress || []);
   useEffect(() => { bindTvProgress(tvProgress, setTvProgress); }, [tvProgress]);
   const [settings, setSettings] = useState<HomeSettings | null>(cached?.state.settings ?? null);
+  const [nwChoices, setNwChoices] = useState<NwChoice[]>(cached?.state.nwChoices || []);
 
   // Everything the "add an item" boxes can suggest.
   useEffect(() => {
@@ -197,7 +199,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   const lastSynced = useRef<SyncState | null>(cached?.base || null);
   const lastSyncedStr = useRef(cached?.base ? JSON.stringify(cached.base) : '');
   const isSaving = useRef(false);
-  const currentState = (): SyncState => pack({ weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, pantryHidden, tvProgress, settings });
+  const currentState = (): SyncState => pack({ weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, pantryHidden, tvProgress, settings, nwChoices });
   const stateRef = useRef<SyncState>(currentState());
   stateRef.current = currentState();
   const recipesRef = useRef(recipes);
@@ -213,6 +215,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
     setPantryHidden(s.pantryHidden);
     setTvProgress(s.tvProgress);
     setSettings(s.settings);
+    setNwChoices(s.nwChoices);
   };
 
   const markSynced = (s: SyncState) => {
@@ -223,7 +226,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   // Keep the offline copy up to date.
   useEffect(() => {
     writeCache({ recipes, state: stateRef.current, base: lastSynced.current });
-  }, [recipes, weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, pantryHidden, tvProgress, settings, isSyncing]);
+  }, [recipes, weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, pantryHidden, tvProgress, settings, nwChoices, isSyncing]);
 
   // SILENT LOGIN: sends the PIN to the backend to get the token
   const loginSilently = useCallback(async (pinToTry?: string) => {
@@ -411,7 +414,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
     saveTimeout.current = setTimeout(() => saveNow(), 1500);
     return () => clearTimeout(saveTimeout.current);
-  }, [weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, pantryHidden, tvProgress, settings, auth.token, isTokenExpired, saveNow]);
+  }, [weeklyPlan, notes, manualItems, hiddenIngredients, clearedIngredients, checkedIngredients, pantryHidden, tvProgress, settings, nwChoices, auth.token, isTokenExpired, saveNow]);
 
   // Back online: sign in if we couldn't before, and send anything ticked while offline.
   useEffect(() => {
@@ -803,6 +806,8 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
           onUpdateChecked={setCheckedIngredients}
           pantryHidden={pantryHidden}
           onUpdatePantryHidden={setPantryHidden}
+          nwChoices={nwChoices}
+          onUpdateNwChoices={setNwChoices}
         />
       )}
     </>

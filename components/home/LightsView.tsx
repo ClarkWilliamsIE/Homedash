@@ -5,6 +5,7 @@ import { callService, useEntities, useEntity } from '../../lib/hass';
 import { Card, LightRow, Switch, lightStatus, toggleLight } from './controls';
 import { HomeIcons } from './icons';
 import { useSettings } from '../../lib/settings';
+import HousePlan from './HousePlan';
 
 const friendly = (name?: string) => (name || '').replace(/^tz3210.*$/i, 'Light');
 
@@ -59,6 +60,7 @@ const LightsView: React.FC = () => {
           <HomeIcons.Power className="w-5 h-5" /> All off
         </button>
       </div>
+      <HousePlan />
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         {rooms.map(r => <RoomCard key={r.id} name={r.name} entityId={r.entity} />)}
       </div>

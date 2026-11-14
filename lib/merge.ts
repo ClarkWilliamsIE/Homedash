@@ -8,6 +8,7 @@
 import { Recipe, WeeklyPlan, FamilyNote } from '../types';
 import type { HomeSettings } from './settings';
 import type { TvProgress } from './tv';
+import type { NwChoice } from './newworld';
 
 export interface ManualItem {
   id: string;
@@ -28,6 +29,8 @@ export interface SyncState {
   tvProgress: TvProgress[];
   /** Settings screen (music moods, rooms, Start cooking). null until someone changes a setting. */
   settings: HomeSettings | null;
+  /** Which New World product the family buys for each shopping-list item. */
+  nwChoices: NwChoice[];
 }
 
 export const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -43,6 +46,7 @@ export const pack = (s: Partial<SyncState>): SyncState => ({
   pantryHidden: s.pantryHidden || [],
   tvProgress: s.tvProgress || [],
   settings: s.settings ?? null,
+  nwChoices: s.nwChoices || [],
 });
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -96,5 +100,6 @@ export function mergeState(baseIn: SyncState, localIn: SyncState, remoteIn: Sync
       }),
     // Settings are saved as a whole: if this device changed them, its version wins.
     settings: same(local.settings, base.settings) ? remote.settings : local.settings,
+    nwChoices: mergeList<NwChoice>(base.nwChoices, local.nwChoices, remote.nwChoices, byId),
   });
 }

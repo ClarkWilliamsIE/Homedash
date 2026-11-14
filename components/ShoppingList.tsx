@@ -6,6 +6,8 @@ import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Recipe, WeeklyPlan } from '../types';
 import type { ManualItem } from '../lib/merge';
 import { AddItemBar, Btn, Icon, PageTitle } from './ui';
+import { NwChoice, NwRowMatch, nwKey, useNewWorld } from '../lib/newworld';
+import { NwRowDetail, NwSendSheet, NwSetupSheet, NwSummary, NwSwapSheet, useTrolley } from './NewWorld';
 
 interface ShoppingListProps {
   weeklyPlan: WeeklyPlan;
@@ -21,6 +23,9 @@ interface ShoppingListProps {
   onUpdateChecked: (items: string[]) => void;
   pantryHidden: string[];
   onUpdatePantryHidden: (items: string[]) => void;
+  /** Which New World product the family buys for each item. */
+  nwChoices: NwChoice[];
+  onUpdateNwChoices: (choices: NwChoice[]) => void;
 }
 
 // --- Aisles ---
@@ -120,12 +125,12 @@ interface Row {
   toggle: () => void;
 }
 
-const ItemRow: React.FC<{ row: Row }> = ({ row }) => (
-  <li>
+const ItemRow: React.FC<{ row: Row; match?: NwRowMatch; onNw?: () => void }> = ({ row, match, onNw }) => (
+  <li className="flex items-stretch">
     <button
       onClick={row.toggle}
       aria-pressed={row.checked}
-      className={`w-full min-h-[3.5rem] flex items-center gap-4 px-4 py-2.5 text-left transition-colors ${row.checked ? 'bg-transparent' : 'hover:bg-slate-50 active:bg-indigo-50'}`}
+      className={`flex-1 min-w-0 min-h-[3.5rem] flex items-center gap-4 px-4 py-2.5 text-left transition-colors ${row.checked ? 'bg-transparent' : 'hover:bg-slate-50 active:bg-indigo-50'}`}
     >
       <span className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center border-2 transition-colors ${row.checked ? 'bg-indigo-700 border-indigo-700 text-white' : 'border-slate-300 bg-white'}`}>
         {row.checked && <Icon.Check className="w-4 h-4" />}
@@ -135,6 +140,7 @@ const ItemRow: React.FC<{ row: Row }> = ({ row }) => (
         {row.detail && !row.checked && <span className="block text-sm text-slate-500 truncate">{row.detail}</span>}
       </span>
     </button>
+    {!row.checked && onNw && <NwRowDetail itemName={row.name} match={match} onOpen={onNw} />}
   </li>
 );
 
@@ -152,6 +158,8 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
   onUpdateChecked,
   pantryHidden,
   onUpdatePantryHidden,
+  nwChoices,
+  onUpdateNwChoices,
 }) => {
   const [showTrolley, setShowTrolley] = useState(false);
   const [showPantry, setShowPantry] = useState(false);
@@ -218,6 +226,19 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
     .map(aisle => ({ aisle, rows: toGet.filter(r => r.aisle === aisle).sort((a, b) => a.name.localeCompare(b.name)) }))
     .filter(g => g.rows.length);
 
+  // New World: a product and price for everything still to get, and the trolley hand-off.
+  const toGetNames = useMemo(() => toGet.map(r => r.name), [toGet.map(r => r.name).join('|')]);
+  const nw = useNewWorld(toGetNames, nwChoices);
+  const trolley = useTrolley(toGetNames, nw);
+  const [swapItem, setSwapItem] = useState<string | null>(null);
+  const [showSend, setShowSend] = useState(false);
+  const [showNwSetup, setShowNwSetup] = useState(false);
+  const chooseProduct = (choice: NwChoice | null) => {
+    if (!swapItem) return;
+    const key = nwKey(swapItem);
+    onUpdateNwChoices([...nwChoices.filter(c => c.id !== key), ...(choice ? [choice] : [])]);
+  };
+
   const finishShop = () => {
     const snapshot = { items: manualItems, cleared: clearedIngredients, checked: checkedIngredients, count: inTrolley.length };
     onUpdateItems(manualItems.filter(i => !i.checked));
@@ -283,6 +304,10 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
         />
       </div>
 
+      {(toGet.length > 0 || nw.error) && (
+        <NwSummary nw={nw} trolley={trolley} onSend={() => setShowSend(true)} onSetup={() => setShowNwSetup(true)} />
+      )}
+
       {groups.length === 0 ? (
         <div className="text-center py-14">
           <p className="font-display text-2xl text-slate-800">{inTrolley.length ? 'Everything is in the trolley' : 'All done'}</p>
@@ -293,7 +318,7 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
           {groups.map(g => (
             <section key={g.aisle} className="break-inside-avoid mb-4 bg-white rounded-3xl border border-slate-200/70 overflow-hidden">
               <h2 className="px-4 pt-3.5 pb-1 text-sm font-semibold text-indigo-700">{g.aisle}</h2>
-              <ul className="divide-y divide-slate-100">{g.rows.map(r => <ItemRow key={r.key} row={r} />)}</ul>
+              <ul className="divide-y divide-slate-100">{g.rows.map(r => <ItemRow key={r.key} row={r} match={nw.matches.get(nwKey(r.name))} onNw={() => setSwapItem(r.name)} />)}</ul>
             </section>
           ))}
         </div>
@@ -375,6 +400,15 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
           </button>
         </p>
       )}
+
+      <NwSwapSheet
+        itemName={swapItem}
+        match={swapItem ? nw.matches.get(nwKey(swapItem)) : undefined}
+        onClose={() => setSwapItem(null)}
+        onChoose={chooseProduct}
+      />
+      <NwSendSheet open={showSend} trolley={trolley} onClose={() => setShowSend(false)} onSetup={() => { setShowSend(false); setShowNwSetup(true); }} />
+      <NwSetupSheet open={showNwSetup} onClose={() => setShowNwSetup(false)} />
 
       {undo && (
         <div className="fixed left-1/2 -translate-x-1/2 bottom-24 md:bottom-8 z-[150] flex items-center gap-4 pl-5 pr-2 py-2 rounded-2xl bg-slate-900 text-white shadow-xl" role="status">

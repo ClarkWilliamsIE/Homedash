@@ -160,3 +160,32 @@ Alexa speaker on your Amazon account, including the Sonos. It's a private skill 
 On each iPhone, make a Shortcut called "Add to Homedash": Dictate Text → Get Contents of URL
 (`https://<your-vercel-site>/api/addItem`, Method POST, Request Body JSON: `pin` = your PIN, `text` = Dictated Text)
 → Get Dictionary Value `message` → Speak Text.
+
+## New World: prices on the list, and filling your trolley
+
+The Shopping screen shows a New World product and price beside each item, an estimated total, and a
+**Send to New World** button that puts the list in your online trolley.
+
+**How it works**
+* *Prices* come from `api/newworld.ts`, which uses the same guest access the New World website gives any
+  visitor who isn't logged in. No New World login is involved. The store is set at the top of
+  `lib/newworld.ts` (and `NW_STORE_ID` on Vercel if you want the API's default to match).
+* *Choosing products*: tap the product on a row to pick the one you usually buy. Homedash remembers it
+  for that item on every device (saved in `SyncData` as `nwChoices`). Items in italics are New World's
+  top search result, not something you've picked.
+* *The trolley* needs your New World login, which Homedash never has. So **Send to New World** opens
+  newworld.co.nz with the list attached to the address, and a bookmark you tap there (in your own
+  logged-in tab) adds everything to the trolley. Things already in the trolley are left alone, and
+  nothing is ordered: you pick a time and pay on New World as usual.
+
+**One-time setup, in each browser you shop from**: Shopping → *Set up the New World bookmark*, then
+follow the steps for iPad/iPhone or Mac/PC.
+
+**Good to know**
+* Things only sold by weight (mince, deli) go in as 500 g. Change the amount in the trolley.
+* Loose produce priced per kg (bananas) goes in as one each and isn't counted in the estimate.
+* This uses New World's own website API, which isn't a published one. If they change it, prices stop
+  showing (the list itself keeps working) and the bookmark reports what it couldn't add.
+* If prices never appear on the deployed site, New World may be refusing requests from Vercel's
+  servers. The fallback is to route lookups through Home Assistant, like Sonarr and Radarr.
+* The bookmark's code is `scripts/nw-bookmarklet.js`. After editing it run `npm run build:bookmark`.
