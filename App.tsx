@@ -27,6 +27,7 @@ import { nudgeRemoteHass, startRemoteHass } from './lib/haRemote';
 import { stampMeal, tidyPlan, isoDay } from './lib/weekDates';
 import { TvProgress, bindTvProgress, startTvTracker } from './lib/tv';
 import TvView from './components/home/TvView';
+import GardenView from './components/home/GardenView';
 
 const INITIAL_PLAN: WeeklyPlan = {
   Sunday: [], Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: []
@@ -688,6 +689,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
     { id: View.Lights, label: 'Lights', icon: <HomeIcons.Bulb className="w-6 h-6" /> },
     { id: View.Music, label: 'Music', icon: <HomeIcons.Music className="w-6 h-6" /> },
     { id: View.Tv, label: 'TV', icon: <HomeIcons.Tv className="w-6 h-6" /> },
+    { id: View.Garden, label: 'Garden', icon: <HomeIcons.Sprout className="w-6 h-6" /> },
     { id: View.Settings, label: 'Settings', icon: <HomeIcons.Gear className="w-6 h-6" /> },
   ] : [];
   const unsaved = hasUnsaved();
@@ -707,7 +709,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
         key={item.id}
         onClick={() => navigate(item.id)}
         aria-current={active ? 'page' : undefined}
-        className={`relative w-[4.5rem] flex flex-col items-center gap-1 py-2.5 rounded-2xl text-xs font-semibold transition-colors ${active ? 'bg-white/15 text-white' : 'text-indigo-200 hover:bg-white/10 hover:text-white'}`}
+        className={`relative w-[4.5rem] shrink-0 flex flex-col items-center gap-0.5 py-2 rounded-2xl text-xs font-semibold transition-colors ${active ? 'bg-white/15 text-white' : 'text-indigo-200 hover:bg-white/10 hover:text-white'}`}
       >
         <span className="relative">{item.icon}{badge(item.badge)}</span>
         {item.label}
@@ -752,6 +754,7 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
       {currentView === View.Lights && isHome && <LightsView />}
       {currentView === View.Music && isHome && <MusicView />}
       {currentView === View.Tv && isHome && <TvView />}
+      {currentView === View.Garden && isHome && <GardenView />}
       {currentView === View.Settings && isHome && <SettingsView settings={withDefaults(settings)} onChange={setSettings} calendar={calendarStatus} />}
       {currentView === View.Dashboard && (
         <WeekPlanner
@@ -808,10 +811,10 @@ const App: React.FC<AppProps> = ({ embedded = false }) => {
   return (
     <div className={`${shell} flex ${isPhone ? 'flex-col' : 'flex-row'} bg-slate-50 text-slate-900 relative overflow-hidden`}>
       {!isPhone && (
-        <nav className="w-[5.75rem] shrink-0 bg-indigo-800 flex flex-col items-center py-5 gap-1.5 overflow-y-auto no-scrollbar" aria-label="Homedash">
-          <img src={apiUrl('/icons/icon-192.png')} alt="Homedash" className="w-11 h-11 rounded-xl mb-4 ring-1 ring-white/15" />
+        <nav className="w-[5.75rem] shrink-0 bg-indigo-800 flex flex-col items-center pt-4 pb-[5.25rem] gap-1 overflow-y-auto no-scrollbar" aria-label="Homedash">
+          <img src={apiUrl('/icons/icon-192.png')} alt="Homedash" className="w-10 h-10 shrink-0 rounded-xl mb-2.5 ring-1 ring-white/15" />
           {mainTabs.map(t => tabButton(t, true))}
-          {houseTabs.length > 0 && <div className="w-10 h-px bg-white/15 my-2" />}
+          {houseTabs.length > 0 && <div className="w-10 h-px shrink-0 bg-white/15 my-1.5" />}
           {houseTabs.map(t => tabButton(t, true))}
         </nav>
       )}

@@ -65,6 +65,7 @@ export enum View {
   Lights = 'lights',
   Music = 'music',
   Tv = 'tv',
+  Garden = 'garden',
   Settings = 'settings',
   Dashboard = 'dashboard',
   Recipes = 'recipes',
