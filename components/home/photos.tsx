@@ -221,6 +221,9 @@ export const PhotoFrame: React.FC<{ weeklyPlan: WeeklyPlan; events?: CalendarEve
   const weather = useWeather();
   const music = useEntities([HOME.music.group, ...HOME.music.speakers.map(s => s.entity)]);
   const soil = useEntity('sensor.garden_soil_moisture');
+  const carBattery = useEntity(HOME.car.battery);
+  const carCharging = useEntity(HOME.car.charging);
+  const carLock = useEntity(HOME.car.lock);
   const [lastTouch, setLastTouch] = useState(Date.now());
   const [now, setNow] = useState(new Date());
 
@@ -289,6 +292,21 @@ export const PhotoFrame: React.FC<{ weeklyPlan: WeeklyPlan; events?: CalendarEve
     return binInfo(offset, now);
   })();
   if (bins.tonight) rows.push({ label: 'Bins', text: `Out tonight: rubbish and ${bins.kind}`, warm: true });
+  // The car: only when it's charging, low, or left unlocked.
+  const carPct = carBattery ? parseFloat(carBattery.state) : NaN;
+  if (Number.isFinite(carPct)) {
+    const unlocked = carLock?.state === 'unlocked';
+    const charging = carCharging?.state === 'on';
+    const low = carPct <= 30 && !charging;
+    if (unlocked || charging || low) {
+      const text = [
+        `${Math.round(carPct)}%`,
+        charging ? 'charging' : low ? 'needs a charge' : '',
+        unlocked ? 'unlocked' : '',
+      ].filter(Boolean).join(' · ');
+      rows.push({ label: HOME.car.name, text, warm: unlocked || low });
+    }
+  }
   const moist = soil ? parseFloat(soil.state) : NaN;
   if (Number.isFinite(moist) && moist > 0 && moist < 25) rows.push({ label: 'Garden', text: `Needs water (soil ${Math.round(moist)}%)`, warm: true });
   if (playing) rows.push({ label: 'Playing', text: `${playing.attributes.media_title}${playing.attributes.media_artist ? ` · ${playing.attributes.media_artist}` : ''}` });
