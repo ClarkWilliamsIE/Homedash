@@ -20,6 +20,7 @@ import { LightRow, MoreLink } from './controls';
 import { HomeIcons } from './icons';
 import { AlsoPlaying, MasterVolume, NowPlaying, ProfileGrid, SpeakerMixer } from './music';
 import GardenCard from './GardenCard';
+import CarLine from './CarCard';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -72,6 +73,7 @@ const Masthead: React.FC<{ events: CalendarEvent[] }> = ({ events }) => {
           </p>
         ))}
         <BinNotifier className="text-slate-500" />
+        <div><CarLine className="text-slate-500" /></div>
       </div>
     </header>
   );

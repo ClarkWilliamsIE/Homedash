@@ -106,7 +106,7 @@ export const setBrightness = (entityId: string, pct: number) => callService('lig
 
 /** One row: tap to toggle, slider appears while the light is on. */
 /** Brightness as − and + buttons (10% a press), for the compact light rows. */
-export const BrightnessStepper: React.FC<{ entityId: string; value: number }> = ({ entityId, value }) => {
+const BrightnessStepper: React.FC<{ entityId: string; value: number }> = ({ entityId, value }) => {
   const [pending, setPending] = React.useState<number | null>(null);
   const timer = React.useRef<any>(null);
   const shown = pending ?? value;

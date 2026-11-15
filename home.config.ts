@@ -44,6 +44,23 @@ export const HOME = {
     ],
   },
 
+  /** The BYD Atto 3 (BYD Vehicle integration from HACS). Its scheduled polling is switched off to
+   *  spare the car's 12V battery; the "Atto 3: refresh a few times a day" automation and the
+   *  Refresh button on the card ask the car for fresh data instead. */
+  car: {
+    name: 'Atto 3',
+    battery: 'sensor.atto_3_battery_level',
+    range: 'sensor.atto_3_range',
+    charging: 'binary_sensor.atto_3_charging',
+    plugged: 'binary_sensor.atto_3_plug',
+    power: 'sensor.atto_3_battery_power',
+    timeToFull: 'sensor.atto_3_charge_remaining_time',
+    lock: 'lock.atto_3_lock',
+    cabin: 'sensor.atto_3_cabin_temperature',
+    updated: 'sensor.atto_3_telemetry_last_updated',
+    refresh: 'button.atto_3_force_poll',
+  },
+
   /** What "Start cooking" does: run this music profile and bring these lights up to bright white. */
   cooking: {
     script: 'script.profile_cooking',
