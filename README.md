@@ -161,15 +161,26 @@ On each iPhone, make a Shortcut called "Add to Homedash": Dictate Text → Get C
 (`https://<your-vercel-site>/api/addItem`, Method POST, Request Body JSON: `pin` = your PIN, `text` = Dictated Text)
 → Get Dictionary Value `message` → Speak Text.
 
-## New World: prices on the list, and filling your trolley
+## New World / PAK'nSAVE: prices on the list, and filling your trolley
 
-The Shopping screen shows a New World product and price beside each item, an estimated total, and a
-**Send to New World** button that puts the list in your online trolley.
+A switch at the top of the Shopping list chooses **New World Kapiti** or **PAK'nSAVE Kapiti** (remembered on
+each device). Both are Foodstuffs stores with the same product codes, so the products you've picked carry
+across, and the card shows what the same items would cost at the other store. If the other store doesn't
+sell your usual product, a stand-in is picked and the trolley says so. The stores are set in `STORES` at the
+top of `lib/newworld.ts` (and `NW_STORE_ID` / `PNS_STORE_ID` on Vercel for the API's defaults).
+
+
+The Shopping screen shows a New World product and price beside each item and an estimated total.
+**Fill my trolley** opens the whole shop already filled in: scroll through, tap another option to swap a
+product, change amounts with + and -, then **Send to New World** puts it in your online trolley.
 
 **How it works**
 * *Prices* come from `api/newworld.ts`, which uses the same guest access the New World website gives any
   visitor who isn't logged in. No New World login is involved. The store is set at the top of
   `lib/newworld.ts` (and `NW_STORE_ID` on Vercel if you want the API's default to match).
+* *What gets picked*: your remembered choice if you've made one, otherwise New World's most popular match
+  ("Most popular"), or the cheapest per 100 g / litre among the closest matches ("Best value"). The switch
+  is at the top of the trolley and is remembered on that device.
 * *Choosing products*: tap the product on a row to pick the one you usually buy. Homedash remembers it
   for that item on every device (saved in `SyncData` as `nwChoices`). Items in italics are New World's
   top search result, not something you've picked.
@@ -178,8 +189,10 @@ The Shopping screen shows a New World product and price beside each item, an est
   logged-in tab) adds everything to the trolley. Things already in the trolley are left alone, and
   nothing is ordered: you pick a time and pay on New World as usual.
 
-**One-time setup, in each browser you shop from**: Shopping → *Set up the New World bookmark*, then
-follow the steps for iPad/iPhone or Mac/PC.
+**One-time setup, in each browser you shop from**: Shopping → *Set up New World*. Either install the
+Homedash userscript (`/homedash-newworld.user.js`, needs the Userscripts or Tampermonkey extension), after
+which the trolley fills by itself when New World or PAK'nSAVE opens (reinstall it if you installed it before
+PAK'nSAVE was added), or save the bookmark and tap it each time.
 
 **Good to know**
 * Things only sold by weight (mince, deli) go in as 500 g. Change the amount in the trolley.
@@ -188,4 +201,5 @@ follow the steps for iPad/iPhone or Mac/PC.
   showing (the list itself keeps working) and the bookmark reports what it couldn't add.
 * If prices never appear on the deployed site, New World may be refusing requests from Vercel's
   servers. The fallback is to route lookups through Home Assistant, like Sonarr and Radarr.
-* The bookmark's code is `scripts/nw-bookmarklet.js`. After editing it run `npm run build:bookmark`.
+* The bookmark and the userscript are the same code, `scripts/nw-bookmarklet.js`. After editing it run
+  `npm run build:bookmark`, which rewrites `lib/nwBookmarklet.ts` and `public/homedash-newworld.user.js`.

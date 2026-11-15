@@ -1,24 +1,27 @@
 // scripts/nw-bookmarklet.js
-// The "Fill trolley from Homedash" bookmark. It runs on newworld.co.nz, in your own signed-in
+// The "Fill trolley from Homedash" bookmark. It runs on newworld.co.nz or paknsave.co.nz, in your own signed-in
 // tab, when you tap the bookmark. It reads the list Homedash attached to the page address
-// (after #homedash=), asks New World for your trolley, and adds what isn't already in it.
-// It never sees your password, sends nothing anywhere except New World, and doesn't check out.
+// (after #homedash=), asks the store for your trolley, and adds what isn't already in it.
+// It never sees your password, sends nothing anywhere except that store, and doesn't check out.
 //
 // After editing this file run `npm run build:bookmark` to regenerate lib/nwBookmarklet.ts.
 //
 // The same code is also packaged as a userscript (public/homedash-newworld.user.js). Installed in a
-// userscript extension it runs by itself whenever New World opens with a Homedash list attached,
+// userscript extension it runs by itself whenever New World or PAK'nSAVE opens with a Homedash list attached,
 // so there is no bookmark to tap. In that mode it stays silent on every other visit.
 (function () {
   var AUTO = typeof HOMEDASH_AUTO !== 'undefined';
-  var API = 'https://api-prod.newworld.co.nz/v1/edge';
+  // New World and PAK'nSAVE run on the same system: api-prod.newworld.co.nz / api-prod.paknsave.co.nz.
+  var HOST_OK = /(^|\.)(newworld|paknsave)\.co\.nz$/.test(location.hostname);
+  var API = 'https://api-prod.' + location.hostname.replace(/^www\./, '') + '/v1/edge';
+  var SHOP = /paknsave/.test(location.hostname) ? "PAK'nSAVE" : 'New World';
   var D = document;
-  if (!/(^|\.)newworld\.co\.nz$/.test(location.hostname) && AUTO) return;
+  if (!HOST_OK && AUTO) return;
 
   // Read the list from the address straight away. In automatic mode this runs before the page's
   // own code, which can tidy the #homedash= part off the address before the page finishes loading.
   var HASH_RAW = (/homedash=([A-Za-z0-9_-]+)/.exec(location.hash) || [])[1] || '';
-  // newworld.co.nz/#homedash-check shows whether the automatic script is working in this browser.
+  // newworld.co.nz/#homedash-check (or paknsave.co.nz/#homedash-check) shows whether the automatic script is working in this browser.
   var CHECK = AUTO && /homedash-check/.test(location.hash);
   if (AUTO && HASH_RAW) {
     try { localStorage.setItem('homedash_list', JSON.stringify({ raw: HASH_RAW, at: Date.now(), tries: 0 })); } catch (e) {}
@@ -132,7 +135,7 @@
   }
 
   function askForList() {
-    show('No Homedash list here', ['Open the Shopping screen in Homedash and tap "Send to New World", or paste the copied list below.']);
+    show('No Homedash list here', ['Open the Shopping screen in Homedash and tap "Send", or paste the copied list below.']);
     var ta = D.createElement('textarea');
     ta.setAttribute('aria-label', 'Homedash list');
     ta.placeholder = 'Paste the list from Homedash';
@@ -145,7 +148,7 @@
     button('Close', false, close);
   }
 
-  // --- New World ---
+  // --- The store ---
   var token = '';
   function call(method, path, payload) {
     return fetch(API + path, {
@@ -160,7 +163,7 @@
       });
     });
   }
-  // New World marks a visitor who hasn't logged in with the role ANONYMOUS inside the session token.
+  // The store marks a visitor who hasn't logged in with the role ANONYMOUS inside the session token.
   function isGuest(who) {
     if (/guest/i.test(String(who.transition || ''))) return true;
     try {
@@ -177,7 +180,7 @@
     var data;
     try { data = decode(raw); } catch (e) { data = null; }
     if (!data || !data.items.length) {
-      show("That list couldn't be read", ['Go back to Homedash and tap "Send to New World" again.']);
+      show("That list couldn't be read", ['Go back to Homedash and tap "Send" again.']);
       button('Close', false, close);
       return;
     }
@@ -185,17 +188,17 @@
     show('Filling your trolley…', ['Adding ' + data.items.length + ' item' + (data.items.length === 1 ? '' : 's') + ' from Homedash.']);
     try {
       var who = await fetch('/api/user/get-current-user', { method: 'POST', credentials: 'include' }).then(function (r) { return r.json(); });
-      if (!who || !who.access_token) throw new Error('New World did not give a session. Reload the page and try again.');
+      if (!who || !who.access_token) throw new Error(SHOP + ' did not give a session. Reload the page and try again.');
       token = who.access_token;
       if (isGuest(who)) {
-        show('Log in to New World first', [AUTO
+        show('Log in to ' + SHOP + ' first', [AUTO
           ? 'You are not logged in on this page. Log in and your trolley fills by itself. Your list is saved in this browser for the next two hours.'
           : 'You are not logged in on this page. Log in, then tap the bookmark again. Your list is saved in this browser for the next two hours.']);
         button('Close', false, close);
         return;
       }
       var cart = await call('GET', '/cart');
-      if (!cart.ok || !cart.json) throw new Error('New World would not show your trolley (' + cart.status + ').');
+      if (!cart.ok || !cart.json) throw new Error(SHOP + ' would not show your trolley (' + cart.status + ').');
       var have = {};
       (cart.json.products || []).forEach(function (p) { have[p.productId] = true; });
       var already = data.items.filter(function (it) { return have[it.id]; });
@@ -247,15 +250,15 @@
 
   // What the check page shows.
   async function checkUp() {
-    show('The Homedash script is working here', ['Checking whether you are logged in to New World…']);
+    show('The Homedash script is working here', ['Checking whether you are logged in to ' + SHOP + '…']);
     var lines = [];
     try {
       var who = await fetch('/api/user/get-current-user', { method: 'POST', credentials: 'include' }).then(function (r) { return r.json(); });
       lines.push(who && who.access_token && !isGuest(who)
-        ? 'You are logged in to New World, so lists from Homedash will fill your trolley.'
-        : 'You are NOT logged in to New World in this browser. Log in and lists from Homedash will fill your trolley.');
+        ? 'You are logged in to ' + SHOP + ', so lists from Homedash will fill your trolley.'
+        : 'You are NOT logged in to ' + SHOP + ' in this browser. Log in and lists from Homedash will fill your trolley.');
     } catch (e) {
-      lines.push('New World did not answer: ' + String(e && e.message || e));
+      lines.push(SHOP + ' did not answer: ' + String(e && e.message || e));
     }
     lines.push(kept() ? 'A list from Homedash is waiting and will be added next.' : 'No list from Homedash is waiting.');
     show('The Homedash script is working here', lines);
@@ -264,8 +267,8 @@
   }
 
   var raw = findRaw();
-  if (!/(^|\.)newworld\.co\.nz$/.test(location.hostname)) {
-    show('Open New World first', ['This bookmark only works on newworld.co.nz.']);
+  if (!HOST_OK) {
+    show("Open New World or PAK'nSAVE first", ['This bookmark only works on newworld.co.nz and paknsave.co.nz.']);
     button('Close', false, close);
   } else if (CHECK) {
     checkUp();

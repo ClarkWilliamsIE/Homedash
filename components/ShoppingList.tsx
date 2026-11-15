@@ -6,7 +6,7 @@ import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Recipe, WeeklyPlan } from '../types';
 import type { ManualItem } from '../lib/merge';
 import { AddItemBar, Btn, Icon, PageTitle } from './ui';
-import { NwChoice, NwRowMatch, nwKey, useNewWorld } from '../lib/newworld';
+import { NwChoice, NwRowMatch, nwKey, useComparison, useNewWorld } from '../lib/newworld';
 import { NwRowDetail, NwSetupSheet, NwSummary, NwSwapSheet, NwTrolleySheet, TrolleyQty, useTrolley } from './NewWorld';
 
 interface ShoppingListProps {
@@ -23,7 +23,7 @@ interface ShoppingListProps {
   onUpdateChecked: (items: string[]) => void;
   pantryHidden: string[];
   onUpdatePantryHidden: (items: string[]) => void;
-  /** Which New World product the family buys for each item. */
+  /** Which supermarket product the family buys for each item (same codes at New World and PAK'nSAVE). */
   nwChoices: NwChoice[];
   onUpdateNwChoices: (choices: NwChoice[]) => void;
 }
@@ -226,7 +226,7 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
     .map(aisle => ({ aisle, rows: toGet.filter(r => r.aisle === aisle).sort((a, b) => a.name.localeCompare(b.name)) }))
     .filter(g => g.rows.length);
 
-  // New World: a product and price for everything still to get, and the trolley hand-off.
+  // Supermarket (New World or PAK'nSAVE): a product and price for everything still to get, and the trolley hand-off.
   const toGetNames = useMemo(() => toGet.map(r => r.name), [toGet.map(r => r.name).join('|')]);
   const nw = useNewWorld(toGetNames, nwChoices);
   // Amounts changed for this shop only (kept while this tab stays open).
@@ -235,6 +235,7 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
   });
   useEffect(() => { try { sessionStorage.setItem('homedash_nw_qty', JSON.stringify(nwQty)); } catch { /* storage blocked */ } }, [nwQty]);
   const trolley = useTrolley(toGetNames, nw, nwQty);
+  const compare = useComparison(trolley.lines);
   const [swapItem, setSwapItem] = useState<string | null>(null);
   const [showSend, setShowSend] = useState(false);
   const [showNwSetup, setShowNwSetup] = useState(false);
@@ -312,7 +313,7 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
       </div>
 
       {(toGet.length > 0 || nw.error) && (
-        <NwSummary nw={nw} trolley={trolley} onSend={() => setShowSend(true)} onSetup={() => setShowNwSetup(true)} />
+        <NwSummary nw={nw} trolley={trolley} compare={compare} onSend={() => setShowSend(true)} onSetup={() => setShowNwSetup(true)} />
       )}
 
       {groups.length === 0 ? (

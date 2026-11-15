@@ -28,8 +28,9 @@ const userscript = `// ==UserScript==
 // @name         Homedash: fill my New World trolley
 // @namespace    homedash
 // @version      ${new Date().toISOString().slice(0, 16).replace(/[-T:]/g, '.')}
-// @description  When Homedash sends a shopping list to New World, adds it to your trolley. Does nothing on any other visit, and never orders or pays.
+// @description  When Homedash sends a shopping list to New World or PAK'nSAVE, adds it to your trolley. Does nothing on any other visit, and never orders or pays.
 // @match        https://www.newworld.co.nz/*
+// @match        https://www.paknsave.co.nz/*
 // @run-at       document-start
 // @inject-into  page
 // @downloadURL  https://homedash-two.vercel.app/homedash-newworld.user.js

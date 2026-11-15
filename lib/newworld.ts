@@ -1,19 +1,24 @@
 // lib/newworld.ts
-// New World products and prices for the shopping list.
-// Lookups go through this site's /api/newworld (which uses New World's public guest access),
-// and are remembered on this device for a few hours so the list opens instantly.
+// Supermarket products and prices for the shopping list: New World or PAK'nSAVE.
+// Both are Foodstuffs stores on the same system and share product codes, so a product picked at
+// one can be priced at the other. Lookups go through this site's /api/newworld (which uses the
+// stores' public guest access), and are remembered on this device for a few hours.
 // Which product the family buys for each item ("butter" → Pams Pure Butter 500g) is a
 // NwChoice, saved with the rest of the shared state so every device agrees.
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { apiUrl } from './runtime';
 
-/** The store prices are looked up for. Change these three to shop somewhere else. */
-export const NW_STORE = {
-  id: 'f54433e6-5c6c-41b9-a5e2-d7502f454da8',
-  name: 'New World Kapiti',
-  site: 'https://www.newworld.co.nz',
+/** The supermarkets you can shop at. Change the ids and names to use other branches. */
+export type Banner = 'nw' | 'pns';
+export interface ShopStore { banner: Banner; id: string; name: string; short: string; site: string }
+export const STORES: Record<Banner, ShopStore> = {
+  nw: { banner: 'nw', id: 'f54433e6-5c6c-41b9-a5e2-d7502f454da8', name: 'New World Kapiti', short: 'New World', site: 'https://www.newworld.co.nz' },
+  pns: { banner: 'pns', id: 'c180a72d-5dbe-4403-b7c7-91655e505492', name: "PAK'nSAVE Kapiti", short: "PAK'nSAVE", site: 'https://www.paknsave.co.nz' },
 };
+export const otherBanner = (b: Banner): Banner => (b === 'nw' ? 'pns' : 'nw');
+/** @deprecated kept for older imports; use STORES / useStore(). */
+export const NW_STORE = STORES.nw;
 
 export interface NwSpecial { price?: number; label: string; club: boolean }
 
@@ -31,7 +36,7 @@ export interface NwProduct {
   special?: NwSpecial;
 }
 
-/** The product the family buys for a shopping-list item. `productId: ''` means "not from New World". */
+/** The product the family buys for a shopping-list item. `productId: ''` means "not from the supermarket". */
 export interface NwChoice {
   /** The item's name in lower case, e.g. "butter". */
   id: string;
@@ -69,7 +74,7 @@ export const estimateCents = (p: NwProduct, q = defaultQty(p)): number | null =>
 };
 
 // --- Which product is picked when the family hasn't chosen one ---
-/** 'popular' takes New World's top result; 'value' takes the cheapest per 100 g / litre among the top few. */
+/** 'popular' takes the store's top result; 'value' takes the cheapest per 100 g / litre among the top few. */
 export type PickMode = 'popular' | 'value';
 const MODE_KEY = 'homedash_nw_pick';
 let pickMode: PickMode = (() => { try { return localStorage.getItem(MODE_KEY) === 'value' ? 'value' : 'popular'; } catch { return 'popular'; } })();
@@ -118,46 +123,54 @@ export const searchTerm = (itemName: string) => {
 // --- Talking to /api/newworld ---
 export class NwUnavailable extends Error {}
 
-async function api<T>(body: Record<string, unknown>): Promise<T> {
+async function api<T>(b: Banner, body: Record<string, unknown>): Promise<T> {
+  const store = STORES[b];
   let res: Response;
   try {
     res = await fetch(apiUrl('/api/newworld'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ storeId: NW_STORE.id, ...body }),
+      body: JSON.stringify({ banner: b, storeId: store.id, ...body }),
     });
   } catch {
-    throw new NwUnavailable("Couldn't reach Homedash for New World prices.");
+    throw new NwUnavailable(`Couldn't reach Homedash for ${store.short} prices.`);
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new NwUnavailable(data?.error || `New World prices aren't available (${res.status}).`);
+  if (!res.ok) throw new NwUnavailable(data?.error || `${store.short} prices aren't available (${res.status}).`);
   return data as T;
 }
 
-export const searchProducts = (query: string, limit = 12) =>
-  api<{ products: NwProduct[] }>({ action: 'search', query, limit }).then(r => r.products || []);
+export const searchProducts = (query: string, limit = 12, b: Banner = banner) =>
+  api<{ products: NwProduct[] }>(b, { action: 'search', query, limit }).then(r => r.products || []);
+
+// --- Which supermarket this device is shopping at ---
+const BANNER_KEY = 'homedash_shop_store';
+let banner: Banner = (() => { try { return localStorage.getItem(BANNER_KEY) === 'pns' ? 'pns' : 'nw'; } catch { return 'nw'; } })();
 
 // --- What this device already knows (prices go stale, so entries expire) ---
-const CACHE_KEY = 'homedash_nw_cache_v2';
+// Keys start with the store ("nw|butter", "pns|5023660-EA-000"): prices differ between them.
+const CACHE_KEY = 'homedash_nw_cache_v3';
 const MATCH_TTL = 12 * 3600_000;
 const PRICE_TTL = 6 * 3600_000;
 
 interface Cache {
-  /** search term → suggested products */
+  /** store|search term → suggested products */
   match: Record<string, { at: number; products: NwProduct[] }>;
-  /** product id → latest details */
+  /** store|product id → latest details */
   product: Record<string, { at: number; product: NwProduct }>;
+  /** store|product id → when that store said it doesn't sell it */
+  missing: Record<string, number>;
 }
 
 const loadCache = (): Cache => {
   try {
     const c = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
-    return { match: c.match || {}, product: c.product || {} };
-  } catch { return { match: {}, product: {} }; }
+    return { match: c.match || {}, product: c.product || {}, missing: c.missing || {} };
+  } catch { return { match: {}, product: {}, missing: {} }; }
 };
 let cache: Cache = loadCache();
 let version = 0;
-let lastError = '';
+const lastError: Record<Banner, string> = { nw: '', pns: '' };
 let busy = 0;
 const listeners = new Set<() => void>();
 const emit = () => { version++; listeners.forEach(l => l()); };
@@ -166,9 +179,20 @@ const persist = () => {
   const cutoff = Date.now() - 7 * 24 * 3600_000;
   for (const k of Object.keys(cache.match)) if (cache.match[k].at < cutoff) delete cache.match[k];
   for (const k of Object.keys(cache.product)) if (cache.product[k].at < cutoff) delete cache.product[k];
+  for (const k of Object.keys(cache.missing)) if (cache.missing[k] < cutoff) delete cache.missing[k];
   try { localStorage.setItem(CACHE_KEY, JSON.stringify(cache)); } catch { /* storage full or blocked */ }
 };
 const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
+const k = (b: Banner, x: string) => `${b}|${x}`;
+
+export const getBanner = () => banner;
+export const setBanner = (b: Banner) => {
+  banner = b;
+  try { localStorage.setItem(BANNER_KEY, b); } catch { /* storage blocked */ }
+  emit();
+};
+export const useBanner = () => useSyncExternalStore(subscribe, () => banner);
+export const useStore = () => STORES[useBanner()];
 
 export const getPickMode = () => pickMode;
 export const setPickMode = (mode: PickMode) => {
@@ -179,61 +203,79 @@ export const setPickMode = (mode: PickMode) => {
 export const usePickMode = () => useSyncExternalStore(subscribe, () => pickMode);
 
 /** Remember a product the family just picked, so its price shows straight away. */
-export const rememberProduct = (p: NwProduct) => {
-  cache.product[p.id] = { at: Date.now(), product: p };
+export const rememberProduct = (p: NwProduct, b: Banner = banner) => {
+  cache.product[k(b, p.id)] = { at: Date.now(), product: p };
+  delete cache.missing[k(b, p.id)];
   persist();
   emit();
 };
 
 const pendingTerms = new Set<string>();
 const pendingIds = new Set<string>();
-const failedAt = { terms: 0, ids: 0 };
+const failedAt: Record<string, number> = {};
 const RETRY_AFTER = 60_000;
+const canTry = (what: string) => Date.now() - (failedAt[what] || 0) > RETRY_AFTER;
 
-async function fetchMatches(terms: string[]) {
-  terms.forEach(t => pendingTerms.add(t));
+async function fetchMatches(b: Banner, terms: string[]) {
+  terms.forEach(t => pendingTerms.add(k(b, t)));
   busy++; emit();
   try {
     for (let i = 0; i < terms.length; i += 15) {
       const chunk = terms.slice(i, i + 15);
-      const { results } = await api<{ results: Record<string, NwProduct[]> }>({ action: 'match', items: chunk });
+      const { results } = await api<{ results: Record<string, NwProduct[]> }>(b, { action: 'match', items: chunk });
       const now = Date.now();
       chunk.forEach(t => {
         const products = results?.[t] || [];
-        cache.match[t] = { at: now, products };
-        products.forEach(p => { cache.product[p.id] = { at: now, product: p }; });
+        cache.match[k(b, t)] = { at: now, products };
+        products.forEach(p => { cache.product[k(b, p.id)] = { at: now, product: p }; delete cache.missing[k(b, p.id)]; });
       });
-      lastError = '';
+      lastError[b] = '';
       persist(); emit();
     }
   } catch (e: any) {
-    lastError = e?.message || 'New World prices are unavailable.';
-    failedAt.terms = Date.now();
+    lastError[b] = e?.message || `${STORES[b].short} prices are unavailable.`;
+    failedAt[`${b}:terms`] = Date.now();
   } finally {
-    terms.forEach(t => pendingTerms.delete(t));
+    terms.forEach(t => pendingTerms.delete(k(b, t)));
     busy--; emit();
   }
 }
 
-async function fetchDetails(ids: string[]) {
-  ids.forEach(i => pendingIds.add(i));
+async function fetchDetails(b: Banner, ids: string[]) {
+  ids.forEach(i => pendingIds.add(k(b, i)));
   busy++; emit();
   try {
-    const { products } = await api<{ products: NwProduct[] }>({ action: 'details', ids });
-    const now = Date.now();
-    (products || []).forEach(p => { cache.product[p.id] = { at: now, product: p }; });
-    // Anything New World no longer lists keeps its old details but isn't asked for again for a while.
-    ids.forEach(id => { if (cache.product[id]) cache.product[id].at = now; });
-    lastError = '';
+    for (let i = 0; i < ids.length; i += 60) {
+      const chunk = ids.slice(i, i + 60);
+      const { products } = await api<{ products: NwProduct[] }>(b, { action: 'details', ids: chunk });
+      const now = Date.now();
+      const found = new Set((products || []).map(p => p.id));
+      (products || []).forEach(p => { cache.product[k(b, p.id)] = { at: now, product: p }; delete cache.missing[k(b, p.id)]; });
+      // Not listed by this store: it doesn't sell it (or no longer does).
+      chunk.forEach(id => { if (!found.has(id)) { cache.missing[k(b, id)] = now; delete cache.product[k(b, id)]; } });
+    }
+    lastError[b] = '';
     persist();
   } catch (e: any) {
-    lastError = e?.message || 'New World prices are unavailable.';
-    failedAt.ids = Date.now();
+    lastError[b] = e?.message || `${STORES[b].short} prices are unavailable.`;
+    failedAt[`${b}:ids`] = Date.now();
   } finally {
-    ids.forEach(i => pendingIds.delete(i));
+    ids.forEach(i => pendingIds.delete(k(b, i)));
     busy--; emit();
   }
 }
+
+/** Ask for details of these products at this store, unless they're already known. */
+const ensureDetails = (b: Banner, ids: string[]) => {
+  const now = Date.now();
+  const need = [...new Set(ids)].filter(id => {
+    if (!id || pendingIds.has(k(b, id))) return false;
+    const known = cache.product[k(b, id)];
+    const gone = cache.missing[k(b, id)];
+    return !(known && now - known.at < PRICE_TTL) && !(gone && now - gone < PRICE_TTL);
+  });
+  if (need.length && canTry(`${b}:ids`)) fetchDetails(b, need);
+};
 
 export interface NwRowMatch {
   /** The product for this item: the family's choice, or the best guess. */
@@ -245,6 +287,8 @@ export interface NwRowMatch {
   /** Other products to offer in the swap list. */
   suggestions: NwProduct[];
   loading: boolean;
+  /** The family's usual product, when this store doesn't sell it (a stand-in is picked instead). */
+  notStocked?: string;
 }
 
 export interface NwState {
@@ -254,14 +298,17 @@ export interface NwState {
   retry: () => void;
 }
 
-/** Products and prices for a set of shopping-list item names. */
+/** Products and prices for a set of shopping-list item names, at the store this device is shopping at. */
 export function useNewWorld(itemNames: string[], choices: NwChoice[], enabled = true): NwState {
   const v = useSyncExternalStore(subscribe, () => version);
+  const b = useBanner();
   const [retryTick, setRetryTick] = useState(0);
   const keys = useMemo(() => [...new Set(itemNames.map(nwKey).filter(Boolean))].sort(), [itemNames.join('|')]);
   const choiceMap = useMemo(() => new Map(choices.map(c => [c.id, c])), [choices]);
 
-  // Ask for whatever isn't known yet (or has gone stale).
+  // Ask for whatever isn't known yet (or has gone stale): search results for every item (they
+  // give the swap options, and a stand-in when the usual product isn't sold here), and the
+  // latest details of each chosen product.
   useEffect(() => {
     if (!enabled || !navigator.onLine) return;
     const now = Date.now();
@@ -269,60 +316,101 @@ export function useNewWorld(itemNames: string[], choices: NwChoice[], enabled = 
     const ids: string[] = [];
     for (const key of keys) {
       const choice = choiceMap.get(key);
-      if (choice) {
-        if (!choice.productId) continue;
-        const known = cache.product[choice.productId];
-        if ((!known || now - known.at > PRICE_TTL) && !pendingIds.has(choice.productId)) ids.push(choice.productId);
-        continue;
-      }
+      if (choice && !choice.productId) continue;
+      if (choice) ids.push(choice.productId);
       const term = searchTerm(key);
-      const known = cache.match[term];
-      if ((!known || now - known.at > MATCH_TTL) && !pendingTerms.has(term)) terms.push(term);
+      const known = cache.match[k(b, term)];
+      if ((!known || now - known.at > MATCH_TTL) && !pendingTerms.has(k(b, term))) terms.push(term);
     }
     const uniqueTerms = [...new Set(terms)];
-    if (uniqueTerms.length && now - failedAt.terms > RETRY_AFTER) fetchMatches(uniqueTerms);
-    if (ids.length && now - failedAt.ids > RETRY_AFTER) fetchDetails([...new Set(ids)]);
-  }, [keys, choiceMap, enabled, retryTick]);
+    if (uniqueTerms.length && canTry(`${b}:terms`)) fetchMatches(b, uniqueTerms);
+    ensureDetails(b, ids);
+  }, [keys, choiceMap, enabled, retryTick, b]);
 
   const matches = useMemo(() => {
     const out = new Map<string, NwRowMatch>();
     for (const key of keys) {
       const term = searchTerm(key);
-      const suggestions = cache.match[term]?.products || [];
+      const suggestions = cache.match[k(b, term)]?.products || [];
+      const searching = !cache.match[k(b, term)] && pendingTerms.has(k(b, term));
       const choice = choiceMap.get(key);
+      if (choice && !choice.productId) {
+        out.set(key, { chosen: true, skipped: true, suggestions, loading: false });
+        continue;
+      }
       if (choice) {
-        const product = choice.productId ? cache.product[choice.productId]?.product : undefined;
+        const product = cache.product[k(b, choice.productId)]?.product;
+        if (!product && cache.missing[k(b, choice.productId)]) {
+          out.set(key, {
+            product: pickDefault(suggestions, pickMode),
+            chosen: false,
+            skipped: false,
+            suggestions,
+            loading: searching,
+            notStocked: choice.label,
+          });
+          continue;
+        }
         out.set(key, {
-          product: product || (choice.productId
-            ? { id: choice.productId, brand: '', name: choice.label, size: '', price: null, unitPrice: '', saleType: choice.saleType, online: true }
-            : undefined),
+          product: product || { id: choice.productId, brand: '', name: choice.label, size: '', price: null, unitPrice: '', saleType: choice.saleType, online: true },
           chosen: true,
-          skipped: !choice.productId,
-          suggestions,
-          loading: !!choice.productId && !product && pendingIds.has(choice.productId),
-        });
-      } else {
-        out.set(key, {
-          product: pickDefault(suggestions, pickMode),
-          chosen: false,
           skipped: false,
           suggestions,
-          loading: !cache.match[term] && pendingTerms.has(term),
+          loading: !product && pendingIds.has(k(b, choice.productId)),
         });
+        continue;
       }
+      out.set(key, { product: pickDefault(suggestions, pickMode), chosen: false, skipped: false, suggestions, loading: searching });
     }
     return out;
-  }, [keys, choiceMap, v]);
+  }, [keys, choiceMap, v, b]);
 
   return {
     matches,
-    error: lastError,
+    error: lastError[b],
     loading: busy > 0,
-    retry: () => { failedAt.terms = 0; failedAt.ids = 0; lastError = ''; setRetryTick(t => t + 1); emit(); },
+    retry: () => {
+      delete failedAt[`${b}:terms`]; delete failedAt[`${b}:ids`]; lastError[b] = '';
+      setRetryTick(t => t + 1); emit();
+    },
   };
 }
 
-// --- Handing the list to New World ---
+export interface Comparison {
+  store: ShopStore;
+  /** Estimated cost here and there of the items both stores sell, in cents. */
+  here: number;
+  there: number;
+  /** How many of the trolley's items were compared. */
+  compared: number;
+  /** Items the other store doesn't sell. */
+  missing: number;
+  loading: boolean;
+}
+
+/** The same trolley priced at the other store, product for product. */
+export function useComparison(lines: { id: string; q: number; product: NwProduct }[], enabled = true): Comparison {
+  const v = useSyncExternalStore(subscribe, () => version);
+  const other = otherBanner(useBanner());
+  const ids = lines.map(l => l.id).sort().join(',');
+  useEffect(() => {
+    if (enabled && navigator.onLine && ids) ensureDetails(other, ids.split(','));
+  }, [ids, other, enabled]);
+  return useMemo(() => {
+    let here = 0, there = 0, compared = 0, missing = 0, loading = false;
+    for (const l of lines) {
+      if (cache.missing[k(other, l.id)]) { missing++; continue; }
+      const p = cache.product[k(other, l.id)]?.product;
+      if (!p) { if (pendingIds.has(k(other, l.id))) loading = true; continue; }
+      const a = estimateCents(l.product, l.q), b2 = estimateCents(p, l.q);
+      if (a == null || b2 == null) continue;
+      here += a; there += b2; compared++;
+    }
+    return { store: STORES[other], here, there, compared, missing, loading };
+  }, [lines, other, v]);
+}
+
+// --- Handing the list to the supermarket ---
 export interface TrolleyLine { id: string; q: number; t: string; n: string }
 
 const toBase64Url = (text: string) => {
@@ -333,8 +421,8 @@ const toBase64Url = (text: string) => {
 };
 
 /** The list, packed small enough to ride along in a web address. */
-export const trolleyPayload = (lines: TrolleyLine[]) =>
-  toBase64Url(JSON.stringify({ v: 1, store: NW_STORE.id, storeName: NW_STORE.name, items: lines }));
+export const trolleyPayload = (lines: TrolleyLine[], b: Banner = banner) =>
+  toBase64Url(JSON.stringify({ v: 1, store: STORES[b].id, storeName: STORES[b].name, items: lines }));
 
-/** New World's home page with the list attached after the #, where only the bookmark reads it. */
-export const trolleyLink = (lines: TrolleyLine[]) => `${NW_STORE.site}/#homedash=${trolleyPayload(lines)}`;
+/** The store's home page with the list attached after the #, where only the Homedash script reads it. */
+export const trolleyLink = (lines: TrolleyLine[], b: Banner = banner) => `${STORES[b].site}/#homedash=${trolleyPayload(lines, b)}`;

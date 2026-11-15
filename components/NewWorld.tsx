@@ -1,17 +1,18 @@
 // components/NewWorld.tsx
-// The New World parts of the Shopping screen: the product and price beside each item, the
-// estimated total, choosing a different product, and sending the list to your New World trolley.
-// Prices come from lib/newworld.ts. The trolley is filled by the "Fill trolley from Homedash"
-// bookmark in your own signed-in New World tab; Homedash never has your New World login.
+// The supermarket parts of the Shopping screen (New World or PAK'nSAVE): the product and price
+// beside each item, the estimated total and the other store's total, choosing a different product,
+// and sending the list to your online trolley. Prices come from lib/newworld.ts. The trolley is
+// filled by the Homedash script or bookmark in your own logged-in tab; Homedash never has your login.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Btn, Icon, Pill, Sheet } from './ui';
 import {
-  NW_STORE, NwChoice, NwProduct, NwRowMatch, NwState, TrolleyLine,
+  Banner, Comparison, NwChoice, NwProduct, NwRowMatch, NwState, STORES, TrolleyLine, setBanner, useBanner, useStore,
   defaultQty, estimateCents, money, nwKey, priceText, productLabel, qtyStep, qtyText, rememberProduct, shelfText,
   searchProducts, searchTerm, setPickMode, trolleyLine, trolleyLink, trolleyPayload, usePickMode,
 } from '../lib/newworld';
 import { NW_BOOKMARKLET_CODE, NW_BOOKMARKLET_URL } from '../lib/nwBookmarklet';
+import { apiUrl } from '../lib/runtime';
 
 const BOOKMARK_NAME = 'Fill trolley from Homedash';
 
@@ -44,7 +45,7 @@ export const NwRowDetail: React.FC<{ itemName: string; match?: NwRowMatch; onOpe
   const p = match.product;
   let top: React.ReactNode, bottom: React.ReactNode = null;
   if (match.skipped) {
-    top = <span className="text-sm text-slate-400">Not New World</span>;
+    top = <span className="text-sm text-slate-400">Skipped</span>;
   } else if (p) {
     top = (
       <span className="flex items-center justify-end gap-1.5">
@@ -61,7 +62,7 @@ export const NwRowDetail: React.FC<{ itemName: string; match?: NwRowMatch; onOpe
   return (
     <button
       onClick={onOpen}
-      aria-label={`New World product for ${itemName}`}
+      aria-label={`Supermarket product for ${itemName}`}
       className="shrink-0 max-w-[46%] md:max-w-[13rem] min-h-[3.5rem] pl-2 pr-4 py-2 text-right hover:bg-slate-50 active:bg-indigo-50"
     >
       {top}
@@ -109,13 +110,59 @@ export function useTrolley(itemNames: string[], nw: NwState, qty: TrolleyQty = {
   }, [itemNames.join('|'), nw.matches, qty]);
 }
 
-/** The card at the top of the list: estimated total and the Send button. */
+/** New World / PAK'nSAVE switch. */
+export const StoreSwitch: React.FC = () => {
+  const current = useBanner();
+  return (
+    <div className="flex items-center gap-1 rounded-2xl bg-slate-100 p-1" role="group" aria-label="Supermarket">
+      {(Object.keys(STORES) as Banner[]).map(b => (
+        <button
+          key={b}
+          onClick={() => setBanner(b)}
+          aria-pressed={current === b}
+          className={`h-9 px-3 rounded-xl text-sm font-semibold ${current === b ? 'bg-indigo-700 text-white' : 'text-slate-600 hover:bg-slate-200/60'}`}
+        >
+          {STORES[b].short}
+        </button>
+      ))}
+    </div>
+  );
+};
+
+/** "Same items at PAK'nSAVE: about $4.20 less". */
+const CompareLine: React.FC<{ compare: Comparison }> = ({ compare }) => {
+  const { store, here, there, compared, missing, loading } = compare;
+  if (!compared) {
+    return loading ? <p className="text-sm text-slate-500">Checking {store.short} prices…</p> : null;
+  }
+  const diff = there - here;
+  const verdict = Math.abs(diff) < 50
+    ? <>about the same at {store.short}</>
+    : <>{diff < 0 ? 'about ' : ''}<b className={diff < 0 ? 'text-emerald-700' : ''}>{money(Math.abs(diff))} {diff < 0 ? 'less' : 'more'}</b> at {store.short}</>;
+  return (
+    <p className="text-sm text-slate-600 mt-0.5">
+      Same items: {verdict}
+      <span className="text-slate-400">
+        {' '}({compared} compared{missing ? `, ${missing} not sold there` : ''})
+      </span>
+      {diff <= -50 && (
+        <>
+          {' '}<button onClick={() => setBanner(store.banner)} className="font-semibold text-indigo-700 underline underline-offset-4">Switch</button>
+        </>
+      )}
+    </p>
+  );
+};
+
+/** The card at the top of the list: which store, estimated total, the other store's total, and Fill my trolley. */
 export const NwSummary: React.FC<{
   nw: NwState;
   trolley: ReturnType<typeof useTrolley>;
+  compare: Comparison;
   onSend: () => void;
   onSetup: () => void;
-}> = ({ nw, trolley, onSend, onSetup }) => {
+}> = ({ nw, trolley, compare, onSend, onSetup }) => {
+  const store = useStore();
   const { lines, total, unpriced, unmatched } = trolley;
   const notes = [
     unpriced ? `${unpriced} sold by weight not counted` : '',
@@ -123,9 +170,12 @@ export const NwSummary: React.FC<{
   ].filter(Boolean).join(', ');
   return (
     <section className="mt-3 rounded-3xl border border-slate-200/70 bg-white px-4 py-3.5">
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+        <StoreSwitch />
+        <p className="text-sm font-semibold text-indigo-700">{store.name}</p>
+      </div>
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-indigo-700">{NW_STORE.name}</p>
           {nw.error && !lines.length ? (
             <p className="text-[15px] text-slate-600">{nw.error}</p>
           ) : lines.length ? (
@@ -136,6 +186,7 @@ export const NwSummary: React.FC<{
           ) : (
             <p className="text-[15px] text-slate-500">{nw.loading ? 'Looking up prices…' : 'Prices appear here as you add to the list.'}</p>
           )}
+          {lines.length > 0 && <CompareLine compare={compare} />}
           {notes && lines.length > 0 && <p className="text-sm text-slate-500">{notes}</p>}
           {nw.error && lines.length > 0 && <p className="text-sm text-slate-500">Some prices couldn't be refreshed.</p>}
         </div>
@@ -145,7 +196,7 @@ export const NwSummary: React.FC<{
         </div>
       </div>
       <button onClick={onSetup} className="mt-2 text-sm font-semibold text-slate-500 hover:text-indigo-700 underline underline-offset-4">
-        Set up the New World bookmark
+        Set up online shopping (one time)
       </button>
     </section>
   );
@@ -173,13 +224,14 @@ const ProductRow: React.FC<{ product: NwProduct; current: boolean; onPick: () =>
   </li>
 );
 
-/** Choose which New World product an item means. */
+/** Choose which product an item means. */
 export const NwSwapSheet: React.FC<{
   itemName: string | null;
   match?: NwRowMatch;
   onClose: () => void;
   onChoose: (choice: NwChoice | null) => void;
 }> = ({ itemName, match, onClose, onChoose }) => {
+  const store = useStore();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<NwProduct[] | null>(null);
   const [error, setError] = useState('');
@@ -192,7 +244,7 @@ export const NwSwapSheet: React.FC<{
     setQuery(started.current);
     setResults(null);
     setError('');
-  }, [itemName]);
+  }, [itemName, store.banner]);
 
   // Search a moment after typing stops. The first view uses what's already known.
   useEffect(() => {
@@ -206,13 +258,13 @@ export const NwSwapSheet: React.FC<{
         const found = await searchProducts(q, 12);
         if (!cancelled) { setResults(found); setError(''); }
       } catch (e: any) {
-        if (!cancelled) setError(e?.message || "Couldn't search New World.");
+        if (!cancelled) setError(e?.message || `Couldn't search ${store.short}.`);
       } finally {
         if (!cancelled) setSearching(false);
       }
     }, 450);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [query, itemName]);
+  }, [query, itemName, store.banner]);
 
   if (!itemName) return null;
   const key = nwKey(itemName);
@@ -228,22 +280,22 @@ export const NwSwapSheet: React.FC<{
     <Sheet
       open
       onClose={onClose}
-      title={`${itemName} at New World`}
+      title={`${itemName} at ${store.short}`}
       footer={
         <div className="flex flex-wrap gap-2 justify-between">
           <Btn variant="ghost" onClick={() => { onChoose({ id: key, productId: '', label: '', saleType: 'UNITS' }); onClose(); }}>
-            Don't get this at New World
+            Don't buy this online
           </Btn>
           {match?.chosen && <Btn variant="ghost" onClick={() => { onChoose(null); onClose(); }}>Use the top result</Btn>}
         </div>
       }
     >
       <label className="block">
-        <span className="sr-only">Search New World</span>
+        <span className="sr-only">Search {store.short}</span>
         <input
           value={query}
           onChange={e => setQuery(e.target.value)}
-          placeholder="Search New World"
+          placeholder={`Search ${store.short}`}
           autoComplete="off"
           enterKeyHint="search"
           className="w-full h-12 rounded-2xl px-4 text-[16px] outline-none bg-slate-100 focus:bg-white focus:ring-2 focus:ring-indigo-200"
@@ -298,6 +350,7 @@ export const NwTrolleySheet: React.FC<{
 }> = ({ open, trolley, onQty, onChoose, onSearch, onClose, onSetup }) => {
   const [copied, setCopied] = useState(false);
   const mode = usePickMode();
+  const store = useStore();
   useEffect(() => { if (open) setCopied(false); }, [open]);
   if (!open) return null;
   const { rows, lines, total, unpriced } = trolley;
@@ -322,7 +375,7 @@ export const NwTrolleySheet: React.FC<{
       open
       wide
       onClose={onClose}
-      title="Your New World trolley"
+      title={`Your ${store.short} trolley`}
       footer={
         <div>
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -331,26 +384,27 @@ export const NwTrolleySheet: React.FC<{
               <span className="text-slate-500"> · {lines.length} item{lines.length === 1 ? '' : 's'}{unpriced ? ', plus loose produce' : ''}</span>
             </p>
             <div className="flex items-center gap-2">
-              <Btn variant="ghost" size="sm" onClick={async () => setCopied(await copyText(`homedash=${trolleyPayload(plain)}`))}>
+              <Btn variant="ghost" size="sm" onClick={async () => setCopied(await copyText(`homedash=${trolleyPayload(plain, store.banner)}`))}>
                 {copied ? 'Copied' : 'Copy list'}
               </Btn>
               {lines.length > 0 ? (
                 <a
-                  href={trolleyLink(plain)}
+                  href={trolleyLink(plain, store.banner)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center justify-center h-11 px-5 rounded-2xl text-[15px] font-semibold bg-indigo-700 text-white hover:bg-indigo-800 shadow-sm"
                 >
-                  Send to New World
+                  Send to {store.short}
                 </a>
               ) : (
-                <Btn disabled>Send to New World</Btn>
+                <Btn disabled>Send to {store.short}</Btn>
               )}
             </div>
           </div>
           <p className="text-sm text-slate-500 mt-1.5">
-            New World opens: tap your <b>{BOOKMARK_NAME}</b> bookmark there and it all goes in your trolley.{' '}
-            <button onClick={onSetup} className="font-semibold text-indigo-700 underline underline-offset-4">No bookmark yet?</button>
+            {store.short} opens and your trolley fills by itself if this browser has the Homedash script. Otherwise tap
+            your <b>{BOOKMARK_NAME}</b> bookmark there.{' '}
+            <button onClick={onSetup} className="font-semibold text-indigo-700 underline underline-offset-4">Set up</button>
           </p>
         </div>
       }
@@ -371,7 +425,7 @@ export const NwTrolleySheet: React.FC<{
               <li key={r.key} className="py-3 flex items-center gap-3">
                 <span className="flex-1 min-w-0">
                   <span className="block text-xs font-semibold uppercase tracking-wide text-slate-400">{r.item}</span>
-                  <span className="block text-[15px] text-slate-500">{r.match?.loading ? 'Looking…' : 'Nothing found at New World'}</span>
+                  <span className="block text-[15px] text-slate-500">{r.match?.loading ? 'Looking…' : `Nothing found at ${store.short}`}</span>
                 </span>
                 <Btn variant="secondary" size="sm" onClick={() => onSearch(r.item)}>Find it</Btn>
               </li>
@@ -384,6 +438,9 @@ export const NwTrolleySheet: React.FC<{
               <div className="flex items-center gap-3">
                 <span className={`flex-1 min-w-0 ${out ? 'opacity-45' : ''}`}>
                   <span className="block text-xs font-semibold uppercase tracking-wide text-slate-400 truncate">{r.item}</span>
+                  {r.match?.notStocked && (
+                    <span className="block text-xs text-amber-700">{store.short} doesn't sell your usual {r.match.notStocked}</span>
+                  )}
                   <span className={`block text-[16px] font-medium text-slate-900 ${out ? 'line-through' : ''}`}>{productLabel(p)}</span>
                   <span className="flex items-center gap-2 text-[15px] text-slate-700">
                     {p.special?.price ? <span className="text-slate-400 line-through">{shelfText(p)}</span> : <span>{shelfText(p)}</span>}
@@ -408,7 +465,7 @@ export const NwTrolleySheet: React.FC<{
 
       {skipped.length > 0 && (
         <div className="mt-3 pt-3 border-t border-slate-100">
-          <p className="text-sm font-semibold text-slate-500">Not from New World</p>
+          <p className="text-sm font-semibold text-slate-500">Skipped</p>
           <ul>
             {skipped.map(r => (
               <li key={r.key} className="flex items-center gap-2 py-1">
@@ -429,16 +486,38 @@ export const NwSetupSheet: React.FC<{ open: boolean; onClose: () => void }> = ({
   useEffect(() => { if (open) setCopied(false); }, [open]);
   if (!open) return null;
   return (
-    <Sheet open onClose={onClose} title="Set up the New World bookmark">
+    <Sheet open onClose={onClose} title="Set up online shopping">
       <p className="text-[15px] text-slate-700">
-        Homedash never has your New World login. A bookmark, saved once in each browser you shop from, adds the
-        Homedash list to your trolley while you're logged in to New World. It doesn't order or pay for anything.
+        Homedash never has your New World or PAK'nSAVE login, so your trolley is filled inside your own browser while
+        you're logged in there. Set up one of these, once, in each browser you shop from. Both work at either store. Neither one orders or
+        pays for anything.
       </p>
 
-      <h3 className="font-semibold text-slate-900 mt-5">iPad or iPhone (Safari)</h3>
+      <h3 className="font-semibold text-slate-900 mt-5">Automatic: nothing to tap</h3>
+      <ol className="text-[15px] text-slate-700 space-y-1 list-decimal pl-5 mt-1">
+        <li>
+          Install a userscript extension: <b>Userscripts</b> for Safari (iPad, iPhone, Mac), or <b>Tampermonkey</b> for
+          Chrome, Edge or Firefox.
+        </li>
+        <li>Open the Homedash script below in that browser and let the extension install it.</li>
+        <li>From then on, <b>Send</b> opens the store's website and the trolley fills by itself.</li>
+      </ol>
+      <a
+        href={apiUrl('/homedash-newworld.user.js')}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-3 inline-flex items-center justify-center h-11 px-4 rounded-2xl text-[15px] font-semibold bg-indigo-700 text-white hover:bg-indigo-800 shadow-sm"
+      >
+        Open the Homedash script
+      </a>
+      <p className="text-sm text-slate-500 mt-2">It only runs on newworld.co.nz and paknsave.co.nz, and only when Homedash has just sent a list. If you installed it before PAK'nSAVE was added, open it again to update.</p>
+
+      <h3 className="font-display text-lg text-slate-900 mt-7">Or a bookmark: one tap each time</h3>
+
+      <h3 className="font-semibold text-slate-900 mt-3">iPad or iPhone (Safari)</h3>
       <ol className="text-[15px] text-slate-700 space-y-1 list-decimal pl-5 mt-1">
         <li>Tap <b>Copy bookmark code</b> below.</li>
-        <li>In Safari, open newworld.co.nz, tap Share, then <b>Add Bookmark</b>, and save it.</li>
+        <li>In Safari, open any web page, tap Share, then <b>Add Bookmark</b>, and save it.</li>
         <li>Open Bookmarks, tap <b>Edit</b>, and tap the new bookmark.</li>
         <li>Name it "{BOOKMARK_NAME}", clear the address, paste the code, and tap Done.</li>
       </ol>
@@ -459,7 +538,7 @@ export const NwSetupSheet: React.FC<{ open: boolean; onClose: () => void }> = ({
       </a>
 
       <p className="text-sm text-slate-500 mt-6">
-        The bookmark only runs when you tap it, only on newworld.co.nz, and only talks to New World.
+        The bookmark only runs when you tap it, only on newworld.co.nz or paknsave.co.nz, and only talks to that store.
         It is {NW_BOOKMARKLET_CODE.length.toLocaleString()} characters of code kept in this project at scripts/nw-bookmarklet.js.
       </p>
     </Sheet>

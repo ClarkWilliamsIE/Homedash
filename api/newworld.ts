@@ -1,5 +1,5 @@
 // api/newworld.ts
-// Looks up New World products and prices for the shopping list.
+// Looks up New World and PAK'nSAVE products and prices for the shopping list (POST banner: 'nw' | 'pns').
 // It uses the same public "guest" access the New World website gives any visitor who isn't
 // signed in, so no New World login or password is involved and none is stored anywhere.
 // Putting things in your trolley is NOT done here: that happens in your own signed-in New World
@@ -13,9 +13,14 @@
 // This is New World's own website API, not a published one. If they change it, lookups stop
 // working and the shopping list carries on without prices.
 
-const SITE = 'https://www.newworld.co.nz';
-const API = 'https://api-prod.newworld.co.nz/v1/edge';
-const DEFAULT_STORE = process.env.NW_STORE_ID || 'f54433e6-5c6c-41b9-a5e2-d7502f454da8'; // New World Kapiti
+// Both Foodstuffs supermarkets run on the same system; only the web addresses differ.
+type Banner = 'nw' | 'pns';
+const BANNERS: Record<Banner, { site: string; api: string; store: string; name: string }> = {
+  nw: { site: 'https://www.newworld.co.nz', api: 'https://api-prod.newworld.co.nz/v1/edge', name: 'New World',
+    store: process.env.NW_STORE_ID || 'f54433e6-5c6c-41b9-a5e2-d7502f454da8' }, // New World Kapiti
+  pns: { site: 'https://www.paknsave.co.nz', api: 'https://api-prod.paknsave.co.nz/v1/edge', name: "PAK'nSAVE",
+    store: process.env.PNS_STORE_ID || 'c180a72d-5dbe-4403-b7c7-91655e505492' }, // PAK'nSAVE Kapiti
+};
 const REGION = process.env.NW_REGION === 'SI' ? 'SI' : 'NI';
 const UA = 'Homedash/1.0 (family shopping list)';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -67,37 +72,36 @@ class Upstream extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 
-// --- Guest token (kept for the life of this server instance) ---
-let token = '';
-let tokenExpires = 0;
-let tokenRequest: Promise<string> | null = null;
+// --- Guest tokens, one per supermarket (kept for the life of this server instance) ---
+const tokens: Record<string, { token: string; expires: number; request: Promise<string> | null }> = {};
 
-function guestToken(fetchFn: typeof fetch = fetch): Promise<string> {
-  if (token && Date.now() < tokenExpires - 60_000) return Promise.resolve(token);
+function guestToken(b: Banner, fetchFn: typeof fetch = fetch): Promise<string> {
+  const t = (tokens[b] ||= { token: '', expires: 0, request: null });
+  if (t.token && Date.now() < t.expires - 60_000) return Promise.resolve(t.token);
   // Several lookups starting together share one sign-in.
-  tokenRequest ||= (async () => {
-    const r = await fetchFn(`${SITE}/api/user/get-current-user`, {
+  t.request ||= (async () => {
+    const r = await fetchFn(`${BANNERS[b].site}/api/user/get-current-user`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'user-agent': UA },
     });
-    if (!r.ok) throw new Upstream(r.status, `New World refused the guest sign-in (${r.status})`);
+    if (!r.ok) throw new Upstream(r.status, `${BANNERS[b].name} refused the guest sign-in (${r.status})`);
     const j: any = await r.json();
-    if (!j?.access_token) throw new Upstream(502, 'New World gave no guest token');
-    token = j.access_token;
-    tokenExpires = Date.parse(j.expires_time) || Date.now() + 10 * 60_000;
-    return token;
-  })().finally(() => { tokenRequest = null; });
-  return tokenRequest;
+    if (!j?.access_token) throw new Upstream(502, `${BANNERS[b].name} gave no guest token`);
+    t.token = j.access_token;
+    t.expires = Date.parse(j.expires_time) || Date.now() + 10 * 60_000;
+    return t.token;
+  })().finally(() => { t.request = null; });
+  return t.request;
 }
 
-async function call(path: string, body: any, fetchFn: typeof fetch = fetch, retry = true): Promise<any> {
-  const r = await fetchFn(`${API}${path}`, {
+async function call(b: Banner, path: string, body: any, fetchFn: typeof fetch = fetch, retry = true): Promise<any> {
+  const r = await fetchFn(`${BANNERS[b].api}${path}`, {
     method: 'POST',
-    headers: { authorization: `Bearer ${await guestToken(fetchFn)}`, 'content-type': 'application/json', 'user-agent': UA },
+    headers: { authorization: `Bearer ${await guestToken(b, fetchFn)}`, 'content-type': 'application/json', 'user-agent': UA },
     body: JSON.stringify(body),
   });
-  if (r.status === 401 && retry) { token = ''; return call(path, body, fetchFn, false); }
-  if (!r.ok) throw new Upstream(r.status, `New World said ${r.status}`);
+  if (r.status === 401 && retry) { if (tokens[b]) tokens[b].token = ''; return call(b, path, body, fetchFn, false); }
+  if (!r.ok) throw new Upstream(r.status, `${BANNERS[b].name} said ${r.status}`);
   return r.json();
 }
 
@@ -136,8 +140,8 @@ export function slim(p: any): NwProduct | null {
   };
 }
 
-export async function search(query: string, storeId: string, limit: number, fetchFn: typeof fetch = fetch): Promise<NwProduct[]> {
-  const r = await call('/search/paginated/products', {
+export async function search(b: Banner, query: string, storeId: string, limit: number, fetchFn: typeof fetch = fetch): Promise<NwProduct[]> {
+  const r = await call(b, '/search/paginated/products', {
     algoliaQuery: {
       attributesToHighlight: [],
       attributesToRetrieve: ['productID', 'Type', 'sponsored'],
@@ -158,9 +162,9 @@ export async function search(query: string, storeId: string, limit: number, fetc
   return (r?.products || []).map(slim).filter(Boolean) as NwProduct[];
 }
 
-export async function details(ids: string[], storeId: string, fetchFn: typeof fetch = fetch): Promise<NwProduct[]> {
+export async function details(b: Banner, ids: string[], storeId: string, fetchFn: typeof fetch = fetch): Promise<NwProduct[]> {
   if (!ids.length) return [];
-  const r = await call(`/store/${storeId}/decorateProducts`, { productIds: ids }, fetchFn);
+  const r = await call(b, `/store/${storeId}/decorateProducts`, { productIds: ids }, fetchFn);
   return (r?.products || []).map(slim).filter(Boolean) as NwProduct[];
 }
 
@@ -183,13 +187,14 @@ export default async function handler(req: any, res: any) {
   if (applyCors(req, res)) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Use POST' });
   const body = typeof req.body === 'string' ? (() => { try { return JSON.parse(req.body); } catch { return {}; } })() : req.body || {};
-  const storeId = UUID.test(String(body.storeId || '')) ? String(body.storeId) : DEFAULT_STORE;
+  const b: Banner = body.banner === 'pns' ? 'pns' : 'nw';
+  const storeId = UUID.test(String(body.storeId || '')) ? String(body.storeId) : BANNERS[b].store;
 
   try {
     if (body.action === 'match') {
       const items: string[] = [...new Set((Array.isArray(body.items) ? body.items : []).map((i: unknown) => cleanText(i, 80)).filter(Boolean))].slice(0, 20) as string[];
       const found = await pooled(items, 3, async item => {
-        try { return await search(item, storeId, 6); }
+        try { return await search(b, item, storeId, 6); }
         catch (e) { if (e instanceof Upstream && (e.status === 403 || e.status === 429)) throw e; return []; }
       });
       return res.status(200).json({ results: Object.fromEntries(items.map((item, i) => [item, found[i]])) });
@@ -198,11 +203,11 @@ export default async function handler(req: any, res: any) {
       const query = cleanText(body.query, 80);
       if (!query) return res.status(400).json({ error: 'Nothing to search for' });
       const limit = Math.min(Math.max(Number(body.limit) || 12, 1), 24);
-      return res.status(200).json({ products: await search(query, storeId, limit) });
+      return res.status(200).json({ products: await search(b, query, storeId, limit) });
     }
     if (body.action === 'details') {
       const ids: string[] = [...new Set((Array.isArray(body.ids) ? body.ids : []).map(String).filter((i: string) => PRODUCT_ID.test(i)))].slice(0, 60) as string[];
-      return res.status(200).json({ products: await details(ids, storeId) });
+      return res.status(200).json({ products: await details(b, ids, storeId) });
     }
     return res.status(400).json({ error: 'Unknown action' });
   } catch (err: any) {
@@ -210,7 +215,7 @@ export default async function handler(req: any, res: any) {
     const status = err instanceof Upstream ? err.status : 0;
     const blocked = status === 403 || status === 429;
     return res.status(502).json({
-      error: blocked ? "New World isn't answering price lookups from here right now." : "Couldn't reach New World. Try again in a minute.",
+      error: blocked ? `${BANNERS[b].name} isn't answering price lookups from here right now.` : `Couldn't reach ${BANNERS[b].name}. Try again in a minute.`,
       upstream: status || undefined,
     });
   }
