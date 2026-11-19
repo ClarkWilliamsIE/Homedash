@@ -101,7 +101,7 @@ const Jukebox: React.FC = () => {
     if (el && shelf.current) shelf.current.scrollTo({ left: el.offsetLeft - shelf.current.offsetLeft, behavior: 'smooth' });
   };
 
-  // Play where the music already is, else in the kitchen & family room.
+  // Play where the music already is, else in the kitchen & kids room.
   const target = main && !main.direct ? main.entity : HOME.music.group;
   const go = async (mode: 'play' | 'shuffle' | 'queue') => {
     if (!picked) return;

@@ -426,7 +426,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ settings, onChange, calenda
           <select className={inputClass} value={settings.timers.speaker} onChange={e => update({ timers: { speaker: e.target.value } })}>
             <option value="">No speaker (chime on the screen only)</option>
             {HOME.music.speakers.map(s => <option key={s.entity} value={s.entity}>{s.name}</option>)}
-            <option value={HOME.music.group}>Kitchen & family room together</option>
+            <option value={HOME.music.group}>Kitchen & kids room together</option>
           </select>
         </label>
         <p className="text-xs font-semibold text-slate-400 mt-3">Tap any time in a recipe's method (like "simmer 20 minutes") to start a timer, or use the Timer button in the corner.</p>

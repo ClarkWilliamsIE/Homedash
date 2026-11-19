@@ -9,7 +9,7 @@ import { settingsStore } from './settings';
 /** The first text-to-speech engine in Home Assistant (currently Google Translate). */
 const ttsEntity = () => Object.keys(hassStore.get()?.states || {}).find(id => id.startsWith('tts.'));
 
-/** Speakers that are always in the Kitchen & Family Room sync group. */
+/** Speakers that are always in the Kitchen & Kids room sync group. */
 const GROUP_MEMBERS = ['media_player.kitchen', 'media_player.family_room', 'media_player.living_room_3'];
 
 const PLAYERS = () => [HOME.music.group, ...HOME.music.speakers.map(s => s.entity)];

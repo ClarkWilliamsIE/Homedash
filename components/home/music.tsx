@@ -16,7 +16,7 @@ export const SPEAKERS = HOME.music.speakers as Speaker[];
 /** Music Assistant's players first, then each speaker's own Sonos entity (only counted when
  *  something outside Music Assistant is playing on it, like RNZ from the Sonos app). */
 export const PLAYERS: { entity: string; name: string; directFor?: string }[] = [
-  { entity: HOME.music.group, name: 'kitchen & family room' },
+  { entity: HOME.music.group, name: 'kitchen & kids room' },
   ...SPEAKERS.map(s => ({ entity: s.entity, name: s.name.toLowerCase() })),
   ...SPEAKERS.filter(s => s.direct).map(s => ({ entity: s.direct!, name: s.name.toLowerCase(), directFor: s.entity })),
 ];
@@ -491,7 +491,7 @@ const ArtThumb: React.FC<{ e: HassEntity }> = ({ e }) => {
   return art ? <img src={art} alt="" className="w-full h-full object-cover" /> : <HomeIcons.Music className="w-5 h-5 text-slate-400" />;
 };
 
-/** Things playing besides the main "Now playing" (Lilly's story in the family room while the
+/** Things playing besides the main "Now playing" (Lilly's story in the kids room while the
  *  kitchen has music, say), each with its own speaker buttons. Shows nothing otherwise. */
 export const AlsoPlaying: React.FC<{ compact?: boolean }> = ({ compact }) => {
   const streams = useStreams();

@@ -17,7 +17,7 @@ const TABS: Tab[] = [
 ];
 
 const TARGETS = [
-  { entity: HOME.music.group, name: 'Kitchen & family room' },
+  { entity: HOME.music.group, name: 'Kitchen & kids room' },
   ...HOME.music.speakers.map(s => ({ entity: s.entity, name: s.name })),
 ];
 

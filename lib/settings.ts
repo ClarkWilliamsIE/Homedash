@@ -131,7 +131,7 @@ export const useSettings = () => useSyncExternalStore(settingsStore.subscribe, s
 
 // --- Music moods → Home Assistant scripts ---
 
-/** Speakers that are permanently part of the Kitchen & Family Room sync group. */
+/** Speakers that are permanently part of the Kitchen & Kids room sync group. */
 const GROUP_MEMBERS = [K, FR, ST];
 
 export const TONE_STYLES: Record<Tone, string> = {
